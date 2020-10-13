@@ -97,19 +97,19 @@ build_gmm_g <- function(candidate_data, replications, maxcand) {
  
     model_summaries <- summarize_draws(draws) 
  
-    # full_join(model_summaries$success_rates, cgd_trials$success_rates, by = "vacc_group_id") %>%
-    #   mutate_at(vars(starts_with("success_rate")), coalesce, 0) %>% 
-    #   transmute(success_moment = success_rate.x - success_rate.y) 
-      # pull(success_moment) %>% 
-      # c(model_summaries$success_corr - cgd_trials$success_corr) %>%
-      # coalesce(0.0)
+    full_join(model_summaries$success_rates, cgd_trials$success_rates, by = "vacc_group_id") %>%
+      mutate_at(vars(starts_with("success_rate")), coalesce, 0) %>%
+      transmute(success_moment = success_rate.x - success_rate.y) %>% 
+      pull(success_moment) %>%
+      c(model_summaries$success_corr - cgd_trials$success_corr) %>%
+      coalesce(0.0)
    
-    full_join(cgd_trials, model_summaries$success_rates, by = "vacc_group_id") %>% 
-      mutate_at(vars(any_success, success_rate), coalesce, 0) %>% 
-      transmute(r, vacc_group_id, m = any_success - success_rate) %>% 
-      pivot_wider(names_from = vacc_group_id, values_from = m) %>% 
-      select(-r) %>% 
-      mutate_all(coalesce, 0) 
+    # full_join(cgd_trials, model_summaries$success_rates, by = "vacc_group_id") %>% 
+    #   mutate_at(vars(any_success, success_rate), coalesce, 0) %>% 
+    #   transmute(r, vacc_group_id, m = any_success - success_rate) %>% 
+    #   pivot_wider(names_from = vacc_group_id, values_from = m) %>% 
+    #   select(-r) %>% 
+    #   mutate_all(coalesce, 0) 
   }
 }
 
@@ -125,4 +125,7 @@ test_draws <- get_candidate_draws(
 
 test_summaries <- summarize_draws(test_draws)
 
-test_results <- gmm(build_gmm_g(candidate_data, 5e3, 50), test_draws, t0 = rep(0, 12))
+test_results <- gmm(build_gmm_g(candidate_data, 10e3, 50), 
+                    test_summaries, 
+                    t0 = rep(0, 12)) # rnorm(12)) 
+                    # type = "iterative") 
