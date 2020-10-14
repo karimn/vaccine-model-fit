@@ -145,7 +145,7 @@ test_draws <- get_candidate_draws(
 
 test_summaries <- summarize_draws(test_draws)
 
-test_results <- gmm(build_gmm_g(candidate_data, 10e3, 50, use_corr_moments = TRUE), 
+test_results <- gmm(build_gmm_g(candidate_data, 10e3, 50, use_corr_moments = FALSE), 
                     test_summaries, 
                     t0 = rep(0, 12)) # rnorm(12)) 
                     # type = "iterative") 
