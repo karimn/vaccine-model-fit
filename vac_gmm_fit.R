@@ -60,15 +60,19 @@ get_candidate_draws <- function(candidate_data, replications,
       # left_join(select(candidate_data, -candidates)) %>% # Get the vaccine group IDs
       left_join(vacc_group_ids, by = setdiff(names(vacc_group_ids), "vacc_group_id")) %>% # Get the vaccine group IDs
       group_by(r, vacc_group_id, .drop = FALSE) %>% 
-      summarize(any_success = sum(success) > 0, .groups = "drop") # Any success in group
-      # complete(r, vacc_group_id = seq(max(candidate_data$vacc_group_id)), fill = lst(any_success = FALSE)) # Make sure all groups are present in the draws
+      summarize(any_success = sum(success) > 0, 
+                success_rate = mean(success),
+                .groups = "drop") %>%  # Any success in group
+      complete(r, vacc_group_id = seq(max(vacc_group_ids$vacc_group_id)), 
+               fill = lst(any_success = FALSE, success_rate = 0)) # Make sure all groups are present in the draws
 }
 
 summarize_draws <- function(draws) {
     success_rates <- draws %>% 
       group_by(vacc_group_id) %>% 
       summarize(
-        success_rate = mean(any_success),
+        # success_rate = mean(any_success),
+        success_rate = mean(success_rate),
         success_rate_pred = qlogis(success_rate),
         
         .groups = "drop"
@@ -76,7 +80,8 @@ summarize_draws <- function(draws) {
       ungroup()
     
     success_corr <- draws %>% 
-      pivot_wider(id_cols = r, names_from = vacc_group_id, values_from = any_success) %>% 
+      # pivot_wider(id_cols = r, names_from = vacc_group_id, values_from = any_success) %>% 
+      pivot_wider(id_cols = r, names_from = vacc_group_id, values_from = success_rate) %>% 
       select(-r) %>% 
       as.data.frame() %>% 
       pcaPP::cor.fk() %>% # Faster than base cor()
@@ -85,7 +90,7 @@ summarize_draws <- function(draws) {
     lst(success_rates, success_corr)
 }
 
-build_gmm_g <- function(candidate_data, replications, maxcand) {
+build_gmm_g <- function(candidate_data, replications, maxcand, use_corr_moments = FALSE) {
   function(pbeta, cgd_trials) {
     model_probs <- plogis(pbeta) %>% 
       set_names(c("poverall", "psubcat", "pvector", "psubunit", "prna", "pdna", "pattenuated", "pinactivated", 
@@ -96,13 +101,28 @@ build_gmm_g <- function(candidate_data, replications, maxcand) {
     draws <- rlang::exec(get_candidate_draws, candidate_data, replications = replications, !!!model_probs, maxcand = maxcand)  
  
     model_summaries <- summarize_draws(draws) 
+    
+    # browser()
  
-    full_join(model_summaries$success_rates, cgd_trials$success_rates, by = "vacc_group_id") %>%
+    moments <- full_join(model_summaries$success_rates, cgd_trials$success_rates, by = "vacc_group_id") %>%
       mutate_at(vars(starts_with("success_rate")), coalesce, 0) %>%
-      transmute(success_moment = success_rate.x - success_rate.y) %>% 
-      pull(success_moment) %>%
-      c(model_summaries$success_corr - cgd_trials$success_corr) %>%
-      coalesce(0.0)
+      transmute(vacc_group_id, 
+                success_moment = success_rate.x - success_rate.y) %>% 
+      # print() %>% 
+      # complete(vacc_group_id = seq(max(candidate_data$vacc_group_id)), fill = lst(success_moment = 0)) %>%  # Make sure all groups are present in the draws
+      pull(success_moment)
+   
+    if (use_corr_moments) { 
+      known_corr <- !is.na(cgd_trials$success_corr)
+      
+      moments %<>% 
+        c(model_summaries$success_corr[known_corr] - cgd_trials$success_corr[known_corr]) %>%
+        coalesce(0.0)
+    }
+    
+    # print(moments)
+      
+    return(moments)
    
     # full_join(cgd_trials, model_summaries$success_rates, by = "vacc_group_id") %>% 
     #   mutate_at(vars(any_success, success_rate), coalesce, 0) %>% 
@@ -125,7 +145,7 @@ test_draws <- get_candidate_draws(
 
 test_summaries <- summarize_draws(test_draws)
 
-test_results <- gmm(build_gmm_g(candidate_data, 10e3, 50), 
+test_results <- gmm(build_gmm_g(candidate_data, 10e3, 50, use_corr_moments = TRUE), 
                     test_summaries, 
                     t0 = rep(0, 12)) # rnorm(12)) 
                     # type = "iterative") 
