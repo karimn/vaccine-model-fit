@@ -36,7 +36,8 @@ load_candidate_data <- function(data_file) {
 
 get_candidate_draws <- function(candidate_data, replications, 
                                 poverall, psubcat, pvector, psubunit, prna, pdna, pattenuated, pinactivated, ppreclinical, pphase1, pphase2, pphase3, 
-                                maxcand) {
+                                maxcand,
+                                group_vaccines_by = vars(Platform, Subcategory)) {
     par <- Parameters$new(replications = replications, 
                           poverall = poverall, psubcat = psubcat, pvector = pvector, psubunit = psubunit, prna = prna, pdna = pdna, pattenuated = pattenuated, 
                           pinactivated = pinactivated, ppreclinical = ppreclinical, pphase1 = pphase1, pphase2 = pphase2, pphase3 = pphase3, maxcand = maxcand)  
@@ -52,8 +53,12 @@ get_candidate_draws <- function(candidate_data, replications,
     dordered <- dordered[,1:11]
     dcandidate <- copy(dordered)
     
-    vacc_group_ids <- candidate_data %>% 
-      group_by(Platform, Subcategory) %>% 
+    vacc_group_ids <- candidate_data %>%
+      # expand_grid(phase = c("Phase 1", "Phase 2", "Phase 3", "Pre-clinical")) %>% # Add phase to ID columns
+      pivot_longer(Phase1candidates:PreClinicalCandidates, names_to = "phase") %>% # Add phase to ID columns
+      filter(value > 0) %>% 
+      mutate(phase = fct_relabel(phase, str_replace_all, c("Phase(\\d)candidates" = "Phase \\1", "PreClinicalCandidates" = "Pre-clinical"))) %>% 
+      group_by_at(group_vaccines_by) %>% 
       summarize(vacc_group_id = cur_group_id(), .groups = "drop")
    
     draws <- candidateDraws(dcandidate, par, seed = NULL) %>% 
@@ -90,7 +95,7 @@ summarize_draws <- function(draws) {
     lst(success_rates, success_corr)
 }
 
-build_gmm_g <- function(candidate_data, replications, maxcand, use_corr_moments = FALSE) {
+build_gmm_g <- function(candidate_data, replications, maxcand, use_corr_moments = FALSE, group_vaccines_by = vars(Platform, Subcategory)) {
   function(pbeta, cgd_trials) {
     model_probs <- plogis(pbeta) %>% 
       set_names(c("poverall", "psubcat", "pvector", "psubunit", "prna", "pdna", "pattenuated", "pinactivated", 
@@ -98,7 +103,7 @@ build_gmm_g <- function(candidate_data, replications, maxcand, use_corr_moments 
     
     print(unname(model_probs))
     
-    draws <- rlang::exec(get_candidate_draws, candidate_data, replications = replications, !!!model_probs, maxcand = maxcand)  
+    draws <- rlang::exec(get_candidate_draws, candidate_data, replications = replications, !!!model_probs, maxcand = maxcand, group_vaccines_by = group_vaccines_by)  
  
     model_summaries <- summarize_draws(draws) 
     
@@ -137,15 +142,18 @@ build_gmm_g <- function(candidate_data, replications, maxcand, use_corr_moments 
 
 candidate_data <- load_candidate_data(file.path("data", "vaccinesSummaryOct2.csv"))
 
+group_vaccines_by <- vars(Platform, Subcategory, Target)
+
 test_draws <- get_candidate_draws(
   candidate_data, replications = 10000,
   poverall=0.9, psubcat=0.9, pvector=0.8, psubunit=0.8, prna=0.6, pdna=0.4, pattenuated=0.8, pinactivated=0.8, ppreclinical=0.14, pphase1=0.23, pphase2=0.32, pphase3=0.5,
-  maxcand = 50
+  maxcand = 50,
+  group_vaccines_by = group_vaccines_by
 )
 
 test_summaries <- summarize_draws(test_draws)
 
-test_results <- gmm(build_gmm_g(candidate_data, 10e3, 50, use_corr_moments = FALSE), 
+test_results <- gmm(build_gmm_g(candidate_data, 10e3, 50, use_corr_moments = FALSE, group_vaccines_by = group_vaccines_by), 
                     test_summaries, 
                     t0 = rep(0, 12)) # rnorm(12)) 
                     # type = "iterative") 
