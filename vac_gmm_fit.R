@@ -36,13 +36,12 @@ load_candidate_data <- function(data_file) {
 }
 
 get_candidate_draws <- function(candidate_data, replications, 
-                                poverall, psubcat, pvector, psubunit, prna, pdna, pattenuated, pinactivated, ppreclinical, pphase1, pphase2, pphase3, 
+                                ...,
                                 maxcand,
                                 group_vaccines_by = vars(Platform, Subcategory),
                                 seed = NULL) {
-    par <- Parameters$new(replications = replications, 
-                          poverall = poverall, psubcat = psubcat, pvector = pvector, psubunit = psubunit, prna = prna, pdna = pdna, pattenuated = pattenuated, 
-                          pinactivated = pinactivated, ppreclinical = ppreclinical, pphase1 = pphase1, pphase2 = pphase2, pphase3 = pphase3, maxcand = maxcand)  
+  param <- rlang::list2(...)
+    par <- exec(Parameters$new, replications = replications, !!!param, maxcand = maxcand)  
     vacc_group_ids <- candidate_data %>%
       pivot_longer(Phase1candidates:PreClinicalCandidates, names_to = "phase") %>% # Add phase to ID columns
       filter(value > 0) %>% 
@@ -105,17 +104,14 @@ OptimLogger <- R6Class("OptimLogger",
 
 build_gmm_g <- function(candidate_data, x, replications, maxcand, use_vcov_moments = FALSE, group_vaccines_by = vars(Platform, Subcategory), sim_seed = NULL, moments_to_use = everything(), fixed_model_probs = NULL, logger = NULL, calculate_objective = FALSE) {
   function(pbeta, ...) {
-    model_probs <- plogis(pbeta) %>% 
-      # list(poverall = .) %>% 
-      as.list() %>% 
-      list_modify(!!!fixed_model_probs)
+    model_probs <- list_modify(as.list(fixed_model_probs), !!!plogis(pbeta))
     
     model_probs %>% 
       imap(~ str_c(.y, " = ", .x)) %>% 
       str_c(collapse = ", ") %>% 
       cat("\n")
     
-    draws <- rlang::exec(get_candidate_draws, candidate_data, replications = replications, !!!model_probs, maxcand = maxcand, group_vaccines_by = group_vaccines_by, seed = sim_seed)  
+    draws <- get_candidate_draws(candidate_data, replications = replications, !!!model_probs, maxcand = maxcand, group_vaccines_by = group_vaccines_by, seed = sim_seed)  
  
     model_summaries <- summarize_draws(draws) 
     
@@ -162,9 +158,11 @@ candidate_data <- load_candidate_data(file.path("data", "vaccinesSummaryOct2.csv
 
 # Test Data --------------------------------------------------------------------
 
+true_param <- c(poverall=0.9, psubcat=0.9, pvector=0.8, psubunit=0.8, prna=0.6, pdna=0.4, pattenuated=0.8, pinactivated=0.8, ppreclinical=0.14, pphase1=0.23, pphase2=0.32, pphase3=0.5)
+
 test_draws <- get_candidate_draws(
   candidate_data, replications = 1e5,
-  poverall=0.9, psubcat=0.9, pvector=0.8, psubunit=0.8, prna=0.6, pdna=0.4, pattenuated=0.8, pinactivated=0.8, ppreclinical=0.14, pphase1=0.23, pphase2=0.32, pphase3=0.5,
+  !!!true_param,
   maxcand = 50,
   group_vaccines_by = group_vaccines_by
 )
@@ -181,8 +179,8 @@ moments_to_use <- test_vcov %>%
 
 test_log <- OptimLogger$new()
 
-gmm_g <- build_gmm_g(candidate_data, 10e3, 50, use_corr_moments = FALSE, group_vaccines_by = group_vaccines_by, sim_seed = 123,
-                     fixed_model_probs = c(pvector=0.8, psubunit=0.8, prna=0.6, pdna=0.4, pattenuated=0.8, pinactivated=0.8, ppreclinical=0.14, pphase1=0.23, pphase2=0.32, pphase3=0.5),
+gmm_g <- build_gmm_g(candidate_data, 10e3, 50, use_vcov_moments = FALSE, group_vaccines_by = group_vaccines_by, sim_seed = 123,
+                     fixed_model_probs = true_param, 
                      logger = test_log) 
 
 
@@ -191,13 +189,12 @@ gmm_g <- build_gmm_g(candidate_data, 10e3, 50, use_corr_moments = FALSE, group_v
 test_optim <- optim(
   fn = build_gmm_g(
     candidate_data, test_summaries, 10e3, 50, use_vcov_moments = TRUE, group_vaccines_by = group_vaccines_by, sim_seed = 123,
-    # fixed_model_probs = c(prna = 0.6,  pinactivated=0.8, ppreclinical=0.14, pphase1=0.23, pphase2=0.32, pphase3=0.5),
-    fixed_model_probs = c(psubcat=0.9, pvector=0.8, psubunit=0.8, pdna=0.4, pinactivated=0.8, ppreclinical=0.14, pphase1=0.23, pphase2=0.32, pphase3=0.5),
+    fixed_model_probs = true_param,
     calculate_objective = TRUE
   ),
-  par = c(poverall = 0.5, pattenuated = 0.5, prna = 0.5) %>% qlogis()
+  par = c(poverall = 0.5, pattenuated = 0.5, prna = 0.5) %>% qlogis(),
   # par = c(poverall = 0.5, psubcat = 0.5, pvector = 0.5, psubunit = 0.5, pdna = 0.5, pattenuated = 0.5) %>% qlogis(),
-  # control = lst(reltol = 0.00001)
+  control = lst(reltol = 0.00001)
   # method = "BFGS"
 )
 
