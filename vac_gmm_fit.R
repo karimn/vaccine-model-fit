@@ -41,38 +41,41 @@ get_candidate_draws <- function(candidate_data, replications,
                                 group_vaccines_by = vars(Platform, Subcategory),
                                 seed = NULL) {
   param <- rlang::list2(...)
-    par <- exec(Parameters$new, replications = replications, !!!param, maxcand = maxcand)  
+  par0 <- Parameters$new(maxcand = maxcand)  
+  par <- exec(Parameters$new, replications = replications, !!!param, maxcand = maxcand)  
+  
+  draws <- candidate_data %>% 
+    candidatesFung(par0) %>% 
+    pluck("dordered") %>% 
+    select(1:11) %>% 
+    candidateDraws(par, seed = seed) 
+    
+  if (is_null(group_vaccines_by)) {
+    draws %<>% 
+      mutate(
+        vacc_group_id = candInd,
+        any_success = success, 
+        success_rate = success,
+      )
+  } else {
     vacc_group_ids <- candidate_data %>%
       pivot_longer(Phase1candidates:PreClinicalCandidates, names_to = "phase") %>% # Add phase to ID columns
       filter(value > 0) %>% 
       mutate(phase = fct_relabel(phase, str_replace_all, c("Phase(\\d)candidates" = "Phase \\1", "PreClinicalCandidates" = "Pre-clinical"))) %>% 
       group_by_at(group_vaccines_by) %>% 
       summarize(vacc_group_id = cur_group_id(), .groups = "drop")
+
+    draws %<>% 
+      left_join(vacc_group_ids, by = setdiff(names(vacc_group_ids), "vacc_group_id")) %>% # Get the vaccine group IDs
+      group_by(r, vacc_group_id, .drop = FALSE) %>% 
+      summarize(any_success = sum(success) > 0, 
+                success_rate = mean(success),
+                .groups = "drop") %>%  # Any success in group
+      complete(r, vacc_group_id = seq(max(vacc_group_ids$vacc_group_id)), 
+               fill = lst(any_success = FALSE, success_rate = 0)) # Make sure all groups are present in the draws
+  } 
   
-    draws <- candidate_data %>% 
-      candidatesFung(par) %>% 
-      pluck("dordered") %>% 
-      select(1:11) %>% 
-      candidateDraws(par, seed = seed) %>% 
-      left_join(vacc_group_ids, by = setdiff(names(vacc_group_ids), "vacc_group_id")) # Get the vaccine group IDs
-    
-    if (is_null(group_vaccines_by)) {
-      draws %<>% 
-        mutate(
-          any_success = success, 
-          success_rate = success,
-        )
-    } else {
-      draws %<>% 
-        group_by(r, vacc_group_id, .drop = FALSE) %>% 
-        summarize(any_success = sum(success) > 0, 
-                  success_rate = mean(success),
-                  .groups = "drop") %>%  # Any success in group
-        complete(r, vacc_group_id = seq(max(vacc_group_ids$vacc_group_id)), 
-                 fill = lst(any_success = FALSE, success_rate = 0)) # Make sure all groups are present in the draws
-    } 
-    
-    return(draws)
+  return(draws)
 }
 
 summarize_draws <- function(draws) {
@@ -125,7 +128,7 @@ build_gmm_g <- function(candidate_data, x, replications, maxcand, use_vcov_momen
       cat("\n")
     
     draws <- get_candidate_draws(candidate_data, replications = replications, !!!all_model_probs, maxcand = maxcand, group_vaccines_by = group_vaccines_by, seed = sim_seed)  
- 
+
     model_summaries <- summarize_draws(draws) 
     
     moments <- full_join(model_summaries$success_rates, x$success_rates, by = "vacc_group_id") %>%
@@ -166,12 +169,12 @@ build_gmm_g <- function(candidate_data, x, replications, maxcand, use_vcov_momen
 
 # Settings ----------------------------------------------------------------
 
-group_vaccines_by <- vars(Platform, Subcategory, Target, phase)
+group_vaccines_by <- NULL #vars(Platform, Subcategory, Target, phase)
 candidate_data <- load_candidate_data(file.path("data", "vaccinesSummaryOct2.csv"))
 
-# Test Data --------------------------------------------------------------------
-
 true_param <- c(poverall=0.9, psubcat=0.9, pvector=0.8, psubunit=0.8, prna=0.6, pdna=0.4, pattenuated=0.8, pinactivated=0.8, ppreclinical=0.14, pphase1=0.23, pphase2=0.32, pphase3=0.5)
+
+# Test Data --------------------------------------------------------------------
 
 test_draws <- get_candidate_draws(
   candidate_data, replications = 3e5,
@@ -182,13 +185,13 @@ test_draws <- get_candidate_draws(
 
 test_summaries <- summarize_draws(test_draws)
 
-test_vcov <- calculate_draws_vcov(test_draws)
-
-moments_to_use <- test_vcov %>% 
-  diag() %>% 
-  equals(0) %>% 
-  not() %>% 
-  which()
+# test_vcov <- calculate_draws_vcov(test_draws)
+# 
+# moments_to_use <- test_vcov %>% 
+#   diag() %>% 
+#   equals(0) %>% 
+#   not() %>% 
+#   which()
 
 test_log <- OptimLogger$new()
 
@@ -198,17 +201,17 @@ gmm_g <- build_gmm_g(candidate_data, 10e3, 50, use_vcov_moments = FALSE, group_v
 
 # Test optimization -------------------------------------------------------
 
-test_optim_log <- OptimLogger$new()
+# test_optim_log <- OptimLogger$new()
 
 test_optim <- optim(
   fn = build_gmm_g(
-    candidate_data, test_summaries, 20e3, 50, use_vcov_moments = TRUE, group_vaccines_by = group_vaccines_by, sim_seed = 123,
+    candidate_data, test_summaries, 20e3, 50, use_vcov_moments = TRUE, group_vaccines_by = group_vaccines_by, # sim_seed = 123,
     fixed_model_probs = true_param,
     calculate_objective = TRUE,
     logger = test_optim_log
   ),
   par = c(poverall = 0.5, psubcat = 0.5, 
-          pvector = 0.5, psubunit = 0.5, prna = 0.5, pdna = 0.5,
+          pvector = 0.5, psubunit = 0.5, prna = 0.5, pdna = 0.5, pinactivated = 0.5,
           pphase1 = 0.5, pphase2 = 0.5, pphase3 = 0.5) %>% qlogis(),
   control = lst(reltol = 0.00001)
   # method = "BFGS"
@@ -216,11 +219,13 @@ test_optim <- optim(
 
 # Plot test optimization dynamics -----------------------------------------
 
-test_optim_log$data %>% 
+test_optim_log$data %>%
+  group_by(run_id) %>% 
   mutate(step = seq(n())) %>% 
-  pivot_longer(-step, names_to = "param_name", values_to = "param_val") %>% 
+  ungroup() %>% 
+  pivot_longer(-c(step, run_id), names_to = "param_name", values_to = "param_val") %>% 
   ggplot() +
-  geom_line(aes(step, param_val)) +
+  geom_line(aes(step, param_val, color = factor(run_id)), alpha = 0.75) +
   geom_hline(aes(yintercept = value), 
              linetype = "dotted",
              data = . %>% semi_join(enframe(true_param, name = "param_name"), ., by = "param_name")) +
