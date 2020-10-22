@@ -117,15 +117,17 @@ OptimLogger <- R6Class("OptimLogger",
                          data = tibble(),
                          log = function(...) { self$data %<>% bind_rows(tibble(!!!rlang::list2(...))) }))
 
-build_gmm_g <- function(candidate_data, x, replications, maxcand, use_vcov_moments = FALSE, group_vaccines_by = vars(Platform, Subcategory), sim_seed = NULL, moments_to_use = everything(), fixed_model_probs = NULL, logger = NULL, calculate_objective = FALSE) {
+build_gmm_g <- function(candidate_data, x, replications, maxcand, use_vcov_moments = FALSE, group_vaccines_by = vars(Platform, Subcategory), sim_seed = NULL, moments_to_use = everything(), fixed_model_probs = NULL, logger = NULL, calculate_objective = FALSE, verbose = FALSE) {
   function(pbeta, ...) {
     model_probs <- plogis(pbeta)
     all_model_probs <- list_modify(as.list(fixed_model_probs), !!!model_probs)
     
-    model_probs %>% 
-      imap(~ str_c(.y, " = ", .x)) %>% 
-      str_c(collapse = ", ") %>% 
-      cat("\n")
+    if (verbose) {
+      model_probs %>% 
+        imap(~ str_c(.y, " = ", .x)) %>% 
+        str_c(collapse = ", ") %>% 
+        cat("\n")
+    }
     
     draws <- get_candidate_draws(candidate_data, replications = replications, !!!all_model_probs, maxcand = maxcand, group_vaccines_by = group_vaccines_by, seed = sim_seed)  
 
@@ -203,29 +205,56 @@ gmm_g <- build_gmm_g(candidate_data, 10e3, 50, use_vcov_moments = FALSE, group_v
 
 # test_optim_log <- OptimLogger$new()
 
-test_optim <- optim(
-  fn = build_gmm_g(
-    candidate_data, test_summaries, 20e3, 50, use_vcov_moments = TRUE, group_vaccines_by = group_vaccines_by, # sim_seed = 123,
-    fixed_model_probs = true_param,
-    calculate_objective = TRUE,
-    logger = test_optim_log
-  ),
-  par = c(poverall = 0.5, psubcat = 0.5, 
-          pvector = 0.5, psubunit = 0.5, prna = 0.5, pdna = 0.5, pinactivated = 0.5,
-          pphase1 = 0.5, pphase2 = 0.5, pphase3 = 0.5) %>% qlogis(),
-  control = lst(reltol = 0.00001)
-  # method = "BFGS"
-)
+# test_optim <- optim(
+#   fn = build_gmm_g(
+#     candidate_data, test_summaries, 20e3, 50, use_vcov_moments = TRUE, group_vaccines_by = group_vaccines_by, # sim_seed = 123,
+#     fixed_model_probs = true_param,
+#     calculate_objective = TRUE,
+#     logger = test_optim_log,
+#     verbose = TRUE
+#   ),
+#   par = c(poverall = 0.5, psubcat = 0.5, 
+#           pvector = 0.5, psubunit = 0.5, prna = 0.5, pdna = 0.5, pinactivated = 0.5,
+#           pphase1 = 0.5, pphase2 = 0.5, pphase3 = 0.5) %>% qlogis(),
+#   control = lst(reltol = 0.00001)
+#   # method = "BFGS"
+# )
+
+# test_optim_logs <- map(1:6, ~ OptimLogger$new())
+
+test_optim_data <- map_dfr(1:4, ~ {
+# future_walk(test_optim_logs, ~ {
+  test_optim_log <- OptimLogger$new()
+  
+  test_optim <- optim(
+    fn = build_gmm_g(
+      candidate_data, test_summaries, 20e3, 50, use_vcov_moments = TRUE, group_vaccines_by = group_vaccines_by, # sim_seed = 123,
+      fixed_model_probs = true_param,
+      calculate_objective = TRUE,
+      logger = test_optim_log,
+      verbose = FALSE
+    ),
+    par = c(poverall = 0.5, psubcat = 0.5, 
+            pvector = 0.5, psubunit = 0.5, prna = 0.5, pdna = 0.5, pinactivated = 0.5,
+            pphase1 = 0.5, pphase2 = 0.5, pphase3 = 0.5) %>% qlogis(),
+    control = lst(reltol = 0.00001)
+    # method = "BFGS"
+  )
+  
+  test_optim_log$data %>%
+    mutate(run_id = .x)
+}) #, .options = furrr_options(seed = TRUE))
 
 # Plot test optimization dynamics -----------------------------------------
 
-test_optim_log$data %>%
+# test_optim_log$data %>%
+test_optim_data %>%
   group_by(run_id) %>% 
   mutate(step = seq(n())) %>% 
   ungroup() %>% 
   pivot_longer(-c(step, run_id), names_to = "param_name", values_to = "param_val") %>% 
   ggplot() +
-  geom_line(aes(step, param_val, color = factor(run_id)), alpha = 0.75) +
+  geom_line(aes(step, param_val, color = factor(run_id)), alpha = 0.75, show.legend = FALSE) +
   geom_hline(aes(yintercept = value), 
              linetype = "dotted",
              data = . %>% semi_join(enframe(true_param, name = "param_name"), ., by = "param_name")) +
@@ -267,7 +296,7 @@ test_log$data %>%
   # geom_point(aes(poverall, psubcat, color = obj))
 
 
-# Test candInd ------------------------------------------------------------
+# Test candInd uniqueness ------------------------------------------------------------
 
 test_draws1 <- get_candidate_draws(
   candidate_data, replications = 1,
