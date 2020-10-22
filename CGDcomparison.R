@@ -1,15 +1,16 @@
 # Clearing workspace, loading packages, setting working directory
-# rm(list=ls())
+rm(list=ls())
 
-library(data.table)
-library(tidyverse)
+library("ggplot2")
+library("data.table")
+library("tidyverse")
 
-# setwd("~/Documents/covidIncentives/ShinyApps/AHTIDdesign")
+setwd("~/Documents/covidIncentives/ShinyApps/AHTIDdesign")
 
 # Install and load vaccineEarlyInvest package
-# devtools::install("../../../vaccineEarlyInvest")
+devtools::install("../../../vaccineEarlyInvest")
 
-library(vaccineEarlyInvest)
+library("vaccineEarlyInvest")
 
 #' Monte Carlo runs of success
 #' 
@@ -39,6 +40,8 @@ library(vaccineEarlyInvest)
 #' @examples
 getDraws <- function(candidateFile, replications=10000, poverall, psubcat, pvector, psubunit, prna, pdna, pattenuated, pinactivated,
                      ppreclinical, pphase1, pphase2, pphase3, maxcand=50, seed=1, ...) {
+  
+  par0 <- Parameters$new(maxcand=maxcand)   # Added this new line
   par <- Parameters$new(replications=replications, poverall=poverall, psubcat=psubcat, pvector=pvector,
                         psubunit, prna=prna, pdna=pdna, pattenuated=pattenuated, pinactivated=pinactivated,
                         ppreclinical=ppreclinical, pphase1=pphase1, pphase2=pphase2, pphase3=pphase3,
@@ -50,7 +53,7 @@ getDraws <- function(candidateFile, replications=10000, poverall, psubcat, pvect
   d$Target[1:5]<-"Spike"
   d$Target[10:15]<-"Recombinant"
   
-  dordered <- candidatesFung(d, par)$dordered
+  dordered <- candidatesFung(d, par0)$dordered # dordered is now generated based on par0
   dplatforms <- unique(dordered[, .(Platform, pplat)])
   setkey(dplatforms, Platform, pplat)
   
@@ -62,6 +65,8 @@ getDraws <- function(candidateFile, replications=10000, poverall, psubcat, pvect
   return(dcanddraws)
 }
 
-draws <- getDraws(candidateFile=file.path("data", "vaccinesSummaryOct2.csv"), replications=10000,
+draws <- getDraws(candidateFile="Data/vaccinesSummaryOct2.csv", replications=10000,
                   poverall=0.9, psubcat=0.9, pvector=0.8, psubunit=0.8, prna=0.6, pdna=0.4, pattenuated=0.8, 
                   pinactivated=0.8, ppreclinical=0.14, pphase1=0.23, pphase2=0.32, pphase3=0.5)
+
+
