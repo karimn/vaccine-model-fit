@@ -44,11 +44,33 @@ get_candidate_draws <- function(candidate_data, replications,
   par0 <- Parameters$new(maxcand = maxcand)  
   par <- exec(Parameters$new, replications = replications, !!!param, maxcand = maxcand)  
   
-  draws <- candidate_data %>% 
+  dordered <- candidate_data %>% 
     candidatesFung(par0) %>% 
-    pluck("dordered") %>% 
-    select(1:11) %>% 
-    candidateDraws(par, seed = seed) 
+    pluck("dordered")
+  
+  dordered[Platform == "DNA", pplat := as.numeric(par$pdna)]
+  dordered[Platform == "RNA", pplat := par$prna]
+  dordered[Platform == "Live attenuated virus", pplat := par$pattenuated]
+  dordered[Platform == "Viral vector", pplat := par$pvector]
+  dordered[Platform == "Protein subunit", pplat := par$psubunit]
+  dordered[Platform == "Inactivated", pplat := par$pinactivated]
+  dordered[Platform == "VLP", pplat := par$pvlp]
+  dordered[Platform == "Dendritic cells", pplat := par$pdendritic]
+  dordered[Platform == "Self-assembling vaccine", pplat := par$psav]
+  dordered[Platform == "Unknown", pplat := par$punknown]
+  dordered[Platform == "Artificial antigen presenting cells", pplat := par$paapc]
+  dordered[Platform == "Live-attenuated bacteria", pplat := par$plivebac]
+
+  dordered[phase == "Pre-clinical", pcand := par$ppreclinical]
+  dordered[phase == "Phase 1", pcand := par$pphase1]
+  dordered[phase == "Phase 2", pcand := par$pphase2]
+  dordered[phase == "Phase 3", pcand := par$pphase3]
+  dordered[phase == "Repurposed", pcand := par$prepurposed]
+
+  dordered <- dordered[,1:11]
+  dcandidate <- copy(dordered)
+
+  draws <- candidateDraws(dcandidate, par, seed = seed)
     
   if (is_null(group_vaccines_by)) {
     draws %<>% 
