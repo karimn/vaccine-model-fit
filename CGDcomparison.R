@@ -38,34 +38,71 @@ library("vaccineEarlyInvest")
 #' @export
 #'
 #' @examples
-getDraws <- function(candidateFile, replications=10000, poverall, psubcat, pvector, psubunit, prna, pdna, pattenuated, pinactivated,
+getDraws <- function(candidateFile, replications=10000, dordered, 
+                     poverall, psubcat, pvector, psubunit, prna, pdna, pattenuated, pinactivated,
                      ppreclinical, pphase1, pphase2, pphase3, maxcand=50, seed=1, ...) {
   
-  par0 <- Parameters$new(maxcand=maxcand)   # Added this new line
+  t0 <- proc.time()
+  
   par <- Parameters$new(replications=replications, poverall=poverall, psubcat=psubcat, pvector=pvector,
                         psubunit, prna=prna, pdna=pdna, pattenuated=pattenuated, pinactivated=pinactivated,
                         ppreclinical=ppreclinical, pphase1=pphase1, pphase2=pphase2, pphase3=pphase3,
                         maxcand=maxcand, ...)
   
-  d <- loadData(par, candidateFile)
+  t1 <- proc.time()
   
-  d$Target <- "Other"
-  d$Target[1:5]<-"Spike"
-  d$Target[10:15]<-"Recombinant"
+   # dordered is now generated based on par0
   
-  dordered <- candidatesFung(d, par0)$dordered # dordered is now generated based on par0
+  t2 <- proc.time()
+
+  dordered[Platform == "DNA", pplat := as.numeric(par$pdna)]
+  dordered[Platform == "RNA", pplat := par$prna]
+  dordered[Platform == "Live attenuated virus", pplat := par$pattenuated]
+  dordered[Platform == "Viral vector", pplat := par$pvector]
+  dordered[Platform == "Protein subunit", pplat := par$psubunit]
+  dordered[Platform == "Inactivated", pplat := par$pinactivated]
+  dordered[Platform == "VLP", pplat := par$pvlp]
+  dordered[Platform == "Dendritic cells", pplat := par$pdendritic]
+  dordered[Platform == "Self-assembling vaccine", pplat := par$psav]
+  dordered[Platform == "Unknown", pplat := par$punknown]
+  dordered[Platform == "Artificial antigen presenting cells", pplat := par$paapc]
+  dordered[Platform == "Live-attenuated bacteria", pplat := par$plivebac]
+  
+  dordered[phase == "Pre-clinical", pcand := par$ppreclinical]
+  dordered[phase == "Phase 1", pcand := par$pphase1]
+  dordered[phase == "Phase 2", pcand := par$pphase2]
+  dordered[phase == "Phase 3", pcand := par$pphase3]
+  dordered[phase == "Repurposed", pcand := par$prepurposed]
+  
   dplatforms <- unique(dordered[, .(Platform, pplat)])
   setkey(dplatforms, Platform, pplat)
   
   dordered <- dordered[,1:11]
   dcandidate <- copy(dordered)
   
+  t3 <- proc.time()
+  
   dcanddraws <- candidateDraws(dcandidate, par, seed=seed)
+  
+  t4 <- proc.time()
+  
+  # print((t1 - t0)["elapsed"])
+  # print((t2 - t1)["elapsed"])
+  # print((t3 - t2)["elapsed"])
+  # print((t4 - t3)["elapsed"])
   
   return(dcanddraws)
 }
 
-draws <- getDraws(candidateFile="Data/vaccinesSummaryOct2.csv", replications=10000,
+# Karim: Lines 97-103 only need to be run once, and dordered can be passed as an argument to getDraws
+par0 <- Parameters$new(maxcand=50)
+d <- loadData(par0, candidateFile="Data/vaccinesSummaryOct2.csv")
+d$Target <- "Other"
+d$Target[1:5]<-"Spike"
+d$Target[10:15]<-"Recombinant"
+dordered <- candidatesFung(d, par0)$dordered
+
+draws <- getDraws(candidateFile="Data/vaccinesSummaryOct2.csv", replications=20000, dordered=dordered,
                   poverall=0.9, psubcat=0.9, pvector=0.8, psubunit=0.8, prna=0.6, pdna=0.4, pattenuated=0.8, 
                   pinactivated=0.8, ppreclinical=0.14, pphase1=0.23, pphase2=0.32, pphase3=0.5)
 

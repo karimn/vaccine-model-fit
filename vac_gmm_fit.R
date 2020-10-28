@@ -35,18 +35,19 @@ load_candidate_data <- function(data_file) {
   return(candidate_data)
 }
 
-get_candidate_draws <- function(candidate_data, replications, 
+calc_dordered <- function(candidate_data, maxcand) {
+  par0 <- Parameters$new(maxcand)
+  
+  candidatesFung(candidate_data, par0)$dordered
+}
+
+get_candidate_draws <- function(candidate_data, replications, dordered, 
                                 ...,
                                 maxcand,
                                 group_vaccines_by = vars(Platform, Subcategory),
                                 seed = NULL) {
   param <- rlang::list2(...)
-  par0 <- Parameters$new(maxcand = maxcand)  
   par <- exec(Parameters$new, replications = replications, !!!param, maxcand = maxcand)  
-  
-  dordered <- candidate_data %>% 
-    candidatesFung(par0) %>% 
-    pluck("dordered")
   
   dordered[Platform == "DNA", pplat := as.numeric(par$pdna)]
   dordered[Platform == "RNA", pplat := par$prna]
@@ -60,13 +61,13 @@ get_candidate_draws <- function(candidate_data, replications,
   dordered[Platform == "Unknown", pplat := par$punknown]
   dordered[Platform == "Artificial antigen presenting cells", pplat := par$paapc]
   dordered[Platform == "Live-attenuated bacteria", pplat := par$plivebac]
-
+  
   dordered[phase == "Pre-clinical", pcand := par$ppreclinical]
   dordered[phase == "Phase 1", pcand := par$pphase1]
   dordered[phase == "Phase 2", pcand := par$pphase2]
   dordered[phase == "Phase 3", pcand := par$pphase3]
   dordered[phase == "Repurposed", pcand := par$prepurposed]
-
+  
   dordered <- dordered[,1:11]
   dcandidate <- copy(dordered)
 
@@ -139,7 +140,28 @@ OptimLogger <- R6Class("OptimLogger",
                          data = tibble(),
                          log = function(...) { self$data %<>% bind_rows(tibble(!!!rlang::list2(...))) }))
 
-build_gmm_g <- function(candidate_data, x, replications, maxcand, use_vcov_moments = FALSE, group_vaccines_by = vars(Platform, Subcategory), sim_seed = NULL, moments_to_use = everything(), fixed_model_probs = NULL, logger = NULL, calculate_objective = FALSE, verbose = FALSE) {
+calculate_moments <- function(model_summaries, x, use_vcov_moments = FALSE) {
+  moments <- full_join(model_summaries$success_rates, x$success_rates, by = "vacc_group_id") %>%
+    mutate_at(vars(starts_with("success_rate")), coalesce, 0) %>%
+    transmute(vacc_group_id,
+              success_moment = success_rate.x - success_rate.y) %>%
+    pull(success_moment)
+  
+  if (use_vcov_moments) {
+    moments %<>% 
+      c(model_summaries$success_vcov - x$success_vcov) 
+  }
+  
+  moments %<>% t() 
+}
+
+calculate_objective <- function(moments, weighting_matrix = diag(length(moments))) {
+  colMeans(moments) %>% 
+     tcrossprod(. %*% weighting_matrix, .) %>% 
+     c()
+}
+
+build_gmm_g <- function(candidate_data, dordered, x, replications, maxcand, use_vcov_moments = FALSE, group_vaccines_by = vars(Platform, Subcategory), sim_seed = NULL, moments_to_use = everything(), fixed_model_probs = NULL, logger = NULL, calculate_objective = FALSE, weighting_matrix = diag(nrow(dordered) + use_vcov_moments * sum(seq(nrow(ordered) - 1))), verbose = FALSE) {
   function(pbeta, ...) {
     model_probs <- plogis(pbeta)
     all_model_probs <- list_modify(as.list(fixed_model_probs), !!!model_probs)
@@ -151,22 +173,11 @@ build_gmm_g <- function(candidate_data, x, replications, maxcand, use_vcov_momen
         cat("\n")
     }
     
-    draws <- get_candidate_draws(candidate_data, replications = replications, !!!all_model_probs, maxcand = maxcand, group_vaccines_by = group_vaccines_by, seed = sim_seed)  
+    draws <- get_candidate_draws(candidate_data, replications = replications, dordered = dordered, !!!all_model_probs, maxcand = maxcand, group_vaccines_by = group_vaccines_by, seed = sim_seed)  
 
     model_summaries <- summarize_draws(draws) 
     
-    moments <- full_join(model_summaries$success_rates, x$success_rates, by = "vacc_group_id") %>%
-      mutate_at(vars(starts_with("success_rate")), coalesce, 0) %>%
-      transmute(vacc_group_id,
-                success_moment = success_rate.x - success_rate.y) %>%
-      pull(success_moment)
-    
-    if (use_vcov_moments) {
-      moments %<>% 
-        c(model_summaries$success_vcov - x$success_vcov) 
-    }
-    
-    moments %<>% t() 
+    moments <- calculate_moments(model_summaries, x) 
 
    # moments <- full_join(x, model_summaries$success_rates, by = "vacc_group_id") %>%
    #    mutate_at(vars(starts_with("success_rate")), coalesce, 0) %>%
@@ -176,7 +187,7 @@ build_gmm_g <- function(candidate_data, x, replications, maxcand, use_vcov_momen
    #    mutate_all(coalesce, 0) %>% 
    #    select(moments_to_use)
    
-   objective <- moments %>% colMeans() %>% crossprod() %>% c()
+   objective <- calculate_objective(moments, weighting_matrix) 
     
     if (!is_null(logger)) {
       logger$log(!!!model_probs, obj = objective) 
@@ -190,33 +201,51 @@ build_gmm_g <- function(candidate_data, x, replications, maxcand, use_vcov_momen
   }
 }
 
+
 # Settings ----------------------------------------------------------------
 
 group_vaccines_by <- NULL #vars(Platform, Subcategory, Target, phase)
 candidate_data <- load_candidate_data(file.path("data", "vaccinesSummaryOct2.csv"))
+dordered <- calc_dordered(candidate_data, 50)
 
 true_param <- c(poverall=0.9, psubcat=0.9, pvector=0.8, psubunit=0.8, prna=0.6, pdna=0.4, pattenuated=0.8, pinactivated=0.8, ppreclinical=0.14, pphase1=0.23, pphase2=0.32, pphase3=0.5)
+
+quick_get_summary <- function(param, ..., summary_type = "success_rates") {
+  summ <- get_candidate_draws(
+    candidate_data, replications = 3e5, dordered = dordered,
+    !!!param,
+    maxcand = 50,
+    group_vaccines_by = group_vaccines_by
+  ) %>% 
+    summarize_draws()
+  
+  if (!is_null(summary_type)) {
+    return(pluck(summ, summary_type))
+  } else {
+    return(summ)
+  }
+}
 
 # Test Data --------------------------------------------------------------------
 
 test_draws <- get_candidate_draws(
-  candidate_data, replications = 3e5,
-  !!!true_param,
-  maxcand = 50,
-  group_vaccines_by = group_vaccines_by
-)
+    candidate_data, replications = 3e5, dordered = dordered,
+    !!!param,
+    maxcand = 50,
+    group_vaccines_by = group_vaccines_by
+  )
 
 test_summaries <- summarize_draws(test_draws)
 
 # Test optimization -------------------------------------------------------
 
-test_optim_data <- map_dfr(1:10, ~ {
+test_optim_data <- map_dfr(1:4, ~ {
 # future_walk(test_optim_logs, ~ {
   test_optim_log <- OptimLogger$new()
   
   test_optim <- optim(
     fn = build_gmm_g(
-      candidate_data, test_summaries, 20e3, 50, use_vcov_moments = TRUE, group_vaccines_by = group_vaccines_by, # sim_seed = 123,
+      candidate_data, dordered = dordered, test_summaries, 20e3, 50, use_vcov_moments = FALSE, group_vaccines_by = group_vaccines_by, # sim_seed = 123,
       fixed_model_probs = true_param,
       calculate_objective = TRUE,
       logger = test_optim_log,
@@ -255,16 +284,7 @@ test_optim_data %>%
   mutate(!!!true_param[setdiff(names(true_param), names(.))]) %>% 
   select(run_id, all_of(names(true_param))) %>% 
   group_by(run_id) %>% 
-  group_modify(~ {
-    get_candidate_draws(
-      candidate_data, replications = 3e5,
-      !!!.x,
-      maxcand = 50,
-      group_vaccines_by = group_vaccines_by
-    ) %>%
-      summarize_draws() %>% 
-      pluck("success_rates")
-  }) %>% 
+  group_modify(quick_get_summary, summary_type = "success_rates") %>% 
   ungroup() %>% 
   ggplot() +
   geom_col(aes(run_id, success_rate, fill = factor(run_id)), alpha = 0.75, show.legend = FALSE) +
@@ -272,6 +292,50 @@ test_optim_data %>%
   facet_wrap(vars(vacc_group_id)) +
   theme_minimal() +
   NULL
+
+# Locating the minima -----------------------------------------------------
+
+model_combine <- test_optim_data %>%
+  group_by(run_id) %>% 
+  filter(step == n()) %>% 
+  ungroup() %>% 
+  mutate(!!!true_param[setdiff(names(true_param), names(.))]) %>% 
+  select(run_id, all_of(names(true_param))) %>% 
+  group_by(run_id) %>% 
+  group_modify(function(fit_param, true_param, ...) {
+    tibble(
+      alpha = seq(-0.5, 1.5, 0.1),
+      param_mix = map(alpha, ~ (1 - .x) * fit_param + .x * true_param)
+    )
+  }, true_param = true_param) %>% 
+  ungroup() %>% 
+  mutate(
+    draw_summaries = map(param_mix, quick_get_summary, summary_type = NULL),
+    moments = map(draw_summaries, calculate_moments, test_summaries),
+    objective = map_dbl(moments, calculate_objective),
+  ) 
+
+cowplot::plot_grid(
+  model_combine %>% 
+    select(run_id, alpha, draw_summaries) %>% 
+    mutate(draw_summaries = map(draw_summaries, pluck, "success_rates")) %>% 
+    unnest(draw_summaries) %>% 
+    ggplot() +
+    geom_line(aes(alpha, success_rate, color = factor(run_id)), show.legend = FALSE) +
+    geom_vline(xintercept = c(0, 1), linetype = "dotted", color = "darkgrey") +
+    facet_wrap(vars(vacc_group_id)) +
+    labs(title = "Success Rates", y = "") +
+    theme_minimal() +
+    theme(axis.text.x = element_blank()),
+  
+  model_combine %>% 
+    select(run_id, alpha, objective) %>% 
+    ggplot() +
+    geom_line(aes(alpha, objective, color = factor(run_id)), show.legend = FALSE) +
+    geom_vline(xintercept = c(0, 1), linetype = "dotted", color = "darkgrey") +
+    labs(title = "Objective", y = "") +
+    theme_minimal()
+)
 
 # Test GMM run ------------------------------------------------------------
 
