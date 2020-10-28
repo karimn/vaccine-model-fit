@@ -161,7 +161,16 @@ calculate_objective <- function(moments, weighting_matrix = diag(length(moments)
      c()
 }
 
-build_gmm_g <- function(candidate_data, dordered, x, replications, maxcand, use_vcov_moments = FALSE, group_vaccines_by = vars(Platform, Subcategory), sim_seed = NULL, moments_to_use = everything(), fixed_model_probs = NULL, logger = NULL, calculate_objective = FALSE, weighting_matrix = diag(nrow(dordered) + use_vcov_moments * sum(seq(nrow(ordered) - 1))), verbose = FALSE) {
+build_gmm_g <- function(candidate_data, dordered, x, replications, maxcand, 
+                        use_vcov_moments = FALSE, 
+                        group_vaccines_by = vars(Platform, Subcategory), 
+                        sim_seed = NULL, 
+                        moments_to_use = everything(), 
+                        fixed_model_probs = NULL, 
+                        logger = NULL, 
+                        calculate_objective = FALSE, 
+                        weighting_matrix = diag(nrow(dordered) + use_vcov_moments * sum(seq(nrow(ordered) - 1))), 
+                        verbose = FALSE) {
   function(pbeta, ...) {
     model_probs <- plogis(pbeta)
     all_model_probs <- list_modify(as.list(fixed_model_probs), !!!model_probs)
@@ -293,7 +302,8 @@ test_optim_data %>%
   theme_minimal() +
   NULL
 
-# Locating the minima -----------------------------------------------------
+
+# Linear combination of optim solution and true param ---------------------
 
 model_combine <- test_optim_data %>%
   group_by(run_id) %>% 
@@ -336,6 +346,49 @@ cowplot::plot_grid(
     labs(title = "Objective", y = "") +
     theme_minimal()
 )
+
+# Linear combination of optim solution and wrong param --------------------
+
+rand_param <- test_optim_data %>% 
+  select(any_of(names(true_param))) %>% 
+  slice(1:5) %>% 
+  mutate_all(~ runif(1)) %>% 
+  mutate(!!!true_param[setdiff(names(true_param), names(.))]) 
+
+rand_model_combine <- test_optim_data %>%
+  filter(run_id == 1) %>% 
+  group_by(run_id) %>% 
+  filter(step == n()) %>% 
+  ungroup() %>% 
+  mutate(!!!true_param[setdiff(names(true_param), names(.))]) %>% 
+  select(run_id, all_of(names(true_param))) %>% 
+  group_by(run_id) %>% 
+  group_modify(~ bind_cols(.x, tibble(alpha = seq(-0.5, 1.5, 0.1)))) %>%
+  ungroup() %>% 
+  group_nest(run_id, alpha, .key = "param_mix") %>% 
+  mutate(
+    param_mix = map2(param_mix, alpha, function(param_mix, alpha, rand_param) {
+      as_tibble(param_mix[rep(1, nrow(rand_param)), names(rand_param)] * (1 - alpha) + rand_param * alpha)
+    }, rand_param = rand_param),
+    
+    draw_summaries = map(param_mix, 
+                         ~ mutate(.x, rand_id = seq(n())) %>%
+                           group_by(rand_id) %>%
+                           group_modify(~ tibble(draw_summaries = list(quick_get_summary(.x, summary_type = NULL))))),
+  ) %>% 
+  unnest(c(param_mix, draw_summaries)) %>% 
+  mutate(
+    moments = map(draw_summaries, calculate_moments, test_summaries),
+    objective = map_dbl(moments, calculate_objective),
+  ) 
+
+rand_model_combine %>% 
+  select(run_id, alpha, objective) %>% 
+  ggplot() +
+  geom_line(aes(alpha, objective, color = factor(run_id)), show.legend = FALSE) +
+  geom_vline(xintercept = c(0, 1), linetype = "dotted", color = "darkgrey") +
+  labs(title = "Objective", y = "") +
+  theme_minimal()
 
 # Test GMM run ------------------------------------------------------------
 
