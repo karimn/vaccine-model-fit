@@ -210,6 +210,45 @@ build_gmm_g <- function(candidate_data, dordered, x, replications, maxcand,
   }
 }
 
+optim_run <- function(run_id, prev_run_data = NULL, replications = 20e3, ndeps = rep(1e-2, 10),
+                      initial_par = c(poverall = 0.5, psubcat = 0.5, 
+                                      pvector = 0.5, psubunit = 0.5, prna = 0.5, pdna = 0.5, pinactivated = 0.5,
+                                      pphase1 = 0.5, pphase2 = 0.5, pphase3 = 0.5)) {
+  test_optim_log <- OptimLogger$new()
+  run_seed <- as.integer(Sys.time()) %% 1e5
+  
+  if (!is_null(prev_run_data)) {
+    initial_par <- prev_run_data %>% 
+      filter(step == n()) %>% 
+      select(all_of(names(initial_par))) %>% 
+      unlist()
+  }
+  
+  test_optim <- optim(
+    fn = build_gmm_g(
+      candidate_data, dordered = dordered, test_summaries, replications = replications, 50, use_vcov_moments = TRUE, group_vaccines_by = group_vaccines_by, sim_seed = run_seed,
+      fixed_model_probs = true_param,
+      calculate_objective = TRUE,
+      logger = test_optim_log,
+      verbose = FALSE
+    ),
+    par = qlogis(initial_par), 
+    control = lst(reltol = 0.0001, ndeps = ndeps, REPORT = 1),
+    method = "BFGS"
+  )
+  
+  run_data <- test_optim_log$data %>%
+    mutate(run_id, step = seq(n())) 
+  
+  if (!is_null(prev_run_data)) {
+    run_data %<>%
+      mutate(step = step + nrow(prev_run_data)) %>% 
+      bind_rows(prev_run_data, .)
+  }
+  
+  return(run_data)
+}
+
 # Settings ----------------------------------------------------------------
 
 group_vaccines_by <- NULL #vars(Platform, Subcategory, Target, phase)
@@ -247,29 +286,15 @@ test_summaries <- summarize_draws(test_draws)
 
 # Test optimization -------------------------------------------------------
 
-test_optim_data <- map_dfr(1:4, ~ {
-# future_walk(test_optim_logs, ~ {
-  test_optim_log <- OptimLogger$new()
-  run_seed <- as.integer(Sys.time()) %% 1e5
-  
-  test_optim <- optim(
-    fn = build_gmm_g(
-      candidate_data, dordered = dordered, test_summaries, 20e3, 50, use_vcov_moments = TRUE, group_vaccines_by = group_vaccines_by, sim_seed = run_seed,
-      fixed_model_probs = true_param,
-      calculate_objective = TRUE,
-      logger = test_optim_log,
-      verbose = FALSE
-    ),
-    par = c(poverall = 0.5, psubcat = 0.5, 
-            pvector = 0.5, psubunit = 0.5, prna = 0.5, pdna = 0.5, pinactivated = 0.5,
-            pphase1 = 0.5, pphase2 = 0.5, pphase3 = 0.5) %>% qlogis(),
-    control = lst(reltol = 0.0001, ndeps=rep(1e-2, 10), REPORT=1),
-    method = "BFGS"
-  )
-  
-  test_optim_log$data %>%
-    mutate(run_id = .x, step = seq(n())) 
-}) #, .options = furrr_options(seed = TRUE))
+test_optim_data <- map(1:4, 
+# future_walk(test_optim_logs,
+  optim_run
+) #, .options = furrr_options(seed = TRUE))
+
+test_optim_data %<>%
+  group_nest(run_id, .key = "run_data") %>% 
+  pull(run_data) %>% 
+  map2_dfr(1:4, ., optim_run, replications = 100e3, ndeps = rep(2e-3, 10))
 
 # Plot test optimization dynamics -----------------------------------------
 
