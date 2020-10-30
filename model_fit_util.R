@@ -1,3 +1,5 @@
+param_names <- c("poverall", "psubunit", "prna", "pdna", "pattenuated", "pinactivated", "ppreclinical", "pphase1", "pphase2", "pphase3")
+
 load_candidate_data <- function(data_file) {
   candidate_data <- loadData(par = NULL, data_file)
   
@@ -176,7 +178,7 @@ build_gmm_g <- function(candidate_data, dordered, x, replications, maxcand,
    objective <- calculate_objective(moments, weighting_matrix) 
     
     if (!is_null(logger)) {
-      logger$log(!!!model_probs, obj = objective) 
+      logger$log(!!!all_model_probs, obj = objective) 
     }
    
     if(calculate_objective) {
@@ -222,7 +224,7 @@ optim_run <- function(run_id, summaries, maxcand, prev_run_data = NULL, replicat
     control = lst(reltol = 0.0001, ndeps = ndeps, REPORT = 1),
     method = "BFGS"
   )
-  
+ 
   run_data <- test_optim_log$data %>%
     mutate(run_id, step = seq(n())) 
   
@@ -235,6 +237,23 @@ optim_run <- function(run_id, summaries, maxcand, prev_run_data = NULL, replicat
   return(run_data)
 }
 
+quick_get_summary <- function(param, ..., candidate_data, dordered, maxcand, group_vaccines_by = NULL, summary_type = "success_rates") {
+  summ <- get_candidate_draws(
+    candidate_data = candidate_data, replications = 3e5, dordered = dordered,
+    param = param,
+    maxcand = maxcand,
+    group_vaccines_by = group_vaccines_by
+  ) %>% 
+    summarize_draws()
+  
+  if (!is_null(summary_type)) {
+    return(pluck(summ, summary_type))
+  } else {
+    return(summ)
+  }
+}
+
+
 convert_cgd_trials <- function(start_month_offset, cgd_trials, id_dict) {
   cgd_trials %>% 
     filter(phase_mon_approval <= start_month_offset) %>% 
@@ -245,3 +264,4 @@ convert_cgd_trials <- function(start_month_offset, cgd_trials, id_dict) {
     inner_join(id_dict, by = c("vaccine_id" = "cgd_vaccine_id")) %>% # inner_ to exclude vaccines we are not considering (e.g. pre-clinical) 
     rename(vacc_group_id = candInd)
 }
+

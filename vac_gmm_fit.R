@@ -65,22 +65,6 @@ dordered <- calc_dordered(candidate_data, maxcand = maxcand)
 
 true_param <- c(poverall=0.9, psubcat=0.9, pvector=0.8, psubunit=0.8, prna=0.6, pdna=0.4, pattenuated=0.8, pinactivated=0.8, ppreclinical=0.14, pphase1=0.23, pphase2=0.32, pphase3=0.5)
 
-quick_get_summary <- function(param, ..., summary_type = "success_rates", maxcand = maxcand) {
-  summ <- get_candidate_draws(
-    candidate_data, replications = 3e5, dordered = dordered,
-    param = param,
-    maxcand = maxcand,
-    group_vaccines_by = group_vaccines_by
-  ) %>% 
-    summarize_draws()
-  
-  if (!is_null(summary_type)) {
-    return(pluck(summ, summary_type))
-  } else {
-    return(summ)
-  }
-}
-
 cgd_id_dict <- get_candidate_draws(
   candidate_data, replications = 1, dordered = dordered,
     maxcand = maxcand,
