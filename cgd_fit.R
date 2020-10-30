@@ -1,5 +1,19 @@
 #!/usr/bin/env Rscript
 
+"Usage:
+  cgd_fit.R [--num-runs=<runs> --append-stage-2=<run-data-file> --output=<run-data-file>]
+  
+Options:
+  --num-runs=<runs>  Number of runs per month [default: 1]
+  --output=<run-data-file>  Where to store output [default: cgd_optim.rds]
+" -> opt_desc
+
+script_options <- if (interactive()) {
+  docopt::docopt(opt_desc, '')
+} else {
+  docopt::docopt(opt_desc)
+}
+
 library(data.table)
 library(magrittr)
 library(tidyverse)
@@ -13,6 +27,9 @@ library(vaccineEarlyInvest)
 plan(multiprocess)
 
 source("model_fit_util.R")
+
+script_options %<>% 
+  modify_at(c("num_runs"), as.integer)
 
 # Load the CGD data and convert it ----------------------------------------
 
@@ -82,21 +99,124 @@ cgd_id_dict <- get_candidate_draws(
   ) %>% 
   unnest(ids)
 
+cgd_draws_month <- lubridate::as_date("2020/10/01")
+fit_month_offsets <- seq(12) + 8
+
+initial_par <- c(poverall = 0.5, psubcat = 0.5, 
+                 pvector = 0.5, psubunit = 0.5, prna = 0.5, pdna = 0.5, pinactivated = 0.5, pattenuated = 0.5,
+                 pphase2 = 0.5, pphase3 = 0.5)
+
 # CGD Fit -----------------------------------------------------------------
 
-cgd_summaries <- map(seq(12) + 8, convert_cgd_trials, cgd_trials, cgd_id_dict) %>% 
-  map(summarize_draws)
+cgd_optim_data <- tibble(
+  month_offset = fit_month_offsets,
+  month = cgd_draws_month + months(fit_month_offsets)
+) %>% 
+  rowwise() %>% 
+  mutate(
+    cgd_summary = list(convert_cgd_trials(month_offset, cgd_trials, cgd_id_dict)) %>% 
+      future_map(summarize_draws)
+  ) %>% 
+  ungroup()
 
-cgd_optim_data <- future_map2(
-  seq(cgd_summaries),
-  cgd_summaries,
-  ~ optim_run(
-    .x, 
-    initial_par = c(poverall = 0.5, psubcat = 0.5, 
-                    pvector = 0.5, psubunit = 0.5, prna = 0.5, pdna = 0.5, pinactivated = 0.5, pattenuated = 0.5,
-                    pphase1 = 0.5, pphase2 = 0.5, pphase3 = 0.5),
-    summaries = .y,
-    maxcand = maxcand
-  ))
+cgd_optim_data %<>% 
+  modelr::data_grid(run_id = seq(script_options$num_runs), month_offset) %>% 
+  left_join(cgd_optim_data, "month_offset") 
 
-write_rds(cgd_optim_data, file.path("data", "cgd_optim.rds"))
+if (is_null(script_options$append_stage_2)) {
+  cat("First stage...")
+  
+  cgd_optim_data %<>% 
+    mutate(param_data = future_map(
+      cgd_summary,
+      ~ optim_run(
+        NULL, 
+        .x, 
+        initial_par = initial_par,
+        maxcand = maxcand),
+      .progress = TRUE
+    )
+  ) 
+  
+  write_rds(cgd_optim_data, file.path("data", script_options$output))
+  
+  cat("done.\n")
+} else {
+  cgd_optim_data <- read_rds(script_options$append_stage_2)
+}
+
+cat("Second stage...")
+
+cgd_optim_data %<>% 
+  mutate(
+    param_data = future_map2_dfr(
+      cgd_summary, param_data,
+      ~ optim_run(
+        NULL,
+        .x,
+        prev_run_data = .y,
+        initial_par = initial_par,
+        maxcand = maxcand,
+        replications = 100e3, 
+        ndeps = rep_along(initial_par, 2e-3)
+      ),
+      .progress = TRUE),
+    run_summary = map(param_data, filter, step == n()) %>%  
+      future_map(quick_get_summary, summary_type = "success_rates", candidate_data = candidate_data, dordered = dordered, maxcand = maxcand, .progress = TRUE)
+  )
+
+cat("...done.\n")
+
+write_rds(cgd_optim_data, file.path("data", script_options$output))
+
+if (!interactive()) {
+  quit(save = "no")
+}
+
+# Plot --------------------------------------------------------------------
+
+cgd_optim_data %>% { 
+    cowplot::plot_grid(
+    #   pivot_longer(., -c(step, run_id), names_to = "param_name", values_to = "param_val") %>% 
+    #     ggplot() +
+    #     geom_line(aes(step, param_val, color = factor(run_id), group = factor(run_id)), alpha = 0.75, show.legend = TRUE) +
+    #     facet_wrap(vars(param_name), scales = "free") +
+    #     labs(y = "") +
+    #     theme_minimal(),
+      
+      group_by(., run_id) %>%
+        filter(step == n()) %>%
+        ungroup() %>%
+        select(-obj) %>%  
+        pivot_longer(., -c(step, run_group_id, run_id, month), names_to = "param_name", values_to = "param_val") %>% 
+        ggplot() +
+        geom_line(aes(month, param_val, group = run_group_id)) +
+        # geom_line(aes(month, param_val, color = param_name)) +
+        scale_x_date("", breaks = "1 month", labels = scales::date_format("%m/%y")) +
+        # scale_color_discrete("") +
+        labs(y = "") +
+        facet_wrap(vars(param_name)) +
+        theme_minimal() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+        NULL,
+    
+      group_by(., run_id) %>%
+        filter(step == n()) %>%
+        ungroup() %>%
+        select(run_group_id, run_id, all_of(param_names)) %>%
+        group_by(run_group_id, run_id) %>%
+        group_modify(quick_get_summary, summary_type = "success_rates", candidate_data = candidate_data, dordered = dordered, maxcand = maxcand, group_vaccines_by = group_vaccines_by) %>%
+        ungroup() %>%
+        ggplot() +
+        geom_line(aes(month, success_rate, group = group_run_id), color = "darkred") +
+        # geom_col(aes(run_id, success_rate, fill = factor(run_id)), alpha = 0.75, show.legend = FALSE) +
+        # geom_hline(aes(yintercept = success_rate), linetype = "dashed", data = test_summaries$success_rates) +
+        scale_x_date("", breaks = "1 month", labels = scales::date_format("%m/%y")) +
+        labs(y = "") +
+        facet_wrap(vars(vacc_group_id)) +
+        theme_minimal() +
+        theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+        NULL
+    )
+  }
+
