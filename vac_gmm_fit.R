@@ -1,6 +1,7 @@
 library(data.table)
 library(magrittr)
 library(tidyverse)
+library(readxl)
 library(gmm)
 library(furrr)
 library(R6)
@@ -14,11 +15,42 @@ library(vaccineEarlyInvest)
 zero_month_date <- lubridate::as_date("2020-10-01") 
 start_month_offset <- 9
 
-cgd_trials <- read_csv(
+raw_cgd_master_input <- read_xlsx(file.path("data", "Master Input Data - COVID-19 Vaccine Predictions publication-2.xlsx")) %>% 
+  pivot_longer(
+    cols = `Phase 1 country`:`Phase 3 trial number`, 
+    names_to = c("phase", ".value"), 
+    names_pattern = "Phase (\\d) ((?:(?:start|end) date)|(?:country)|(?:trial number))",
+    names_transform = list(
+      phase = as.integer
+    ),
+    values_drop_na = TRUE
+  ) %>% 
+  rename(
+    phase_country = "country",
+    phase_start_date = "start date",
+    phase_end_date = "end date",
+    phase_trial_number = "trial number") %>% 
+  mutate_at(vars(starts_with("phase_")), ~ na_if(.x, "NA")) %>% 
+  nest(phase_data = phase:phase_trial_number) %>% 
+  mutate(phase_data = map(phase_data, filter, across(starts_with("phase_"), ~ !is.na(.x)))) 
+
+cgd_master_input <- raw_cgd_master_input %>% 
+  filter(!str_detect(Institutes, "Kentucky Bioprocessing")) %>% # Exists in out data as pre-clinical but also Unknown/Unknown
+  transmute(
+    cgd_vaccine_id = Number,
+    Platform = str_replace(Platform, ".+viral vector", "Viral vector"), # Not distinguishing between replicating and non-replicating
+    Subcategory,
+    # Subcategory = if_else(str_detect(Institutes, "Hong Kong"), "Influenza (replicating)", Subcategory),
+    phase = map_chr(phase_data, ~ if (nrow(.x) > 0) str_c("Phase ", max(.x$phase)) else "Pre-clinical"))
+  )
+
+raw_cgd_trials <- read_csv(
   file.path("data", "cgd_trials.csv"), 
   skip = 1,
   col_names = c("try_id", "vaccine_id", "phase_mon_1", "phase_mon_2", "phase_mon_3", "phase_mon_approval"), 
-) %>% 
+) 
+
+cgd_trials <- raw_cgd_trials %>%  
   mutate_all(as.integer) %>% 
   filter(phase_mon_approval <= start_month_offset)
 
@@ -36,7 +68,7 @@ load_candidate_data <- function(data_file) {
 }
 
 calc_dordered <- function(candidate_data, maxcand) {
-  par0 <- Parameters$new(maxcand)
+  par0 <- Parameters$new(maxcand = maxcand)
   
   candidatesFung(candidate_data, par0)$dordered
 }
@@ -106,7 +138,6 @@ summarize_draws <- function(draws) {
       group_by(vacc_group_id) %>% 
       summarize(
         success_rate = mean(success_rate),
-        
         .groups = "drop"
       ) %>% 
       ungroup()
@@ -249,19 +280,30 @@ optim_run <- function(run_id, prev_run_data = NULL, replications = 20e3, ndeps =
   return(run_data)
 }
 
+convert_cgd_trials <- function(cgd_trials, id_dict) {
+  cgd_trials %>% 
+    rename(r = try_id) %>% 
+    mutate(success_rate = 1) %>% 
+    complete(r, vaccine_id = id_dict$cgd_vaccine_id) %>% 
+    mutate(success_rate = coalesce(success_rate, 0L)) %>% 
+    inner_join(id_dict, by = c("vaccine_id" = "cgd_vaccine_id")) %>% # inner_ to exclude vaccines we are not considering (e.g. pre-clinical) 
+    rename(vacc_group_id = candInd)
+}
+
 # Settings ----------------------------------------------------------------
 
-group_vaccines_by <- NULL #vars(Platform, Subcategory, Target, phase)
-candidate_data <- load_candidate_data(file.path("data", "vaccinesSummaryOct2.csv"))
-dordered <- calc_dordered(candidate_data, 50)
+group_vaccines_by <- NULL 
+maxcand <- 50 
+candidate_data <- load_candidate_data(file.path("data", "vaccinesSummaryCGD.csv"))
+dordered <- calc_dordered(candidate_data, maxcand = maxcand)
 
 true_param <- c(poverall=0.9, psubcat=0.9, pvector=0.8, psubunit=0.8, prna=0.6, pdna=0.4, pattenuated=0.8, pinactivated=0.8, ppreclinical=0.14, pphase1=0.23, pphase2=0.32, pphase3=0.5)
 
-quick_get_summary <- function(param, ..., summary_type = "success_rates") {
+quick_get_summary <- function(param, ..., summary_type = "success_rates", maxcand = maxcand) {
   summ <- get_candidate_draws(
     candidate_data, replications = 3e5, dordered = dordered,
     !!!param,
-    maxcand = 50,
+    maxcand = maxcand,
     group_vaccines_by = group_vaccines_by
   ) %>% 
     summarize_draws()
@@ -272,6 +314,25 @@ quick_get_summary <- function(param, ..., summary_type = "success_rates") {
     return(summ)
   }
 }
+
+cgd_id_dict <- get_candidate_draws(
+  candidate_data, replications = 1, dordered = dordered,
+    !!!true_param,
+    maxcand = maxcand,
+    group_vaccines_by = group_vaccines_by
+  ) %>% 
+  select(candInd, Platform, Subcategory, phase) %>% 
+  nest(ids = candInd) %>% 
+  right_join(
+    cgd_master_input %>% 
+      filter(fct_match(phase, c("Phase 2", "Phase 3"))) %>% 
+      nest(cgd_ids = cgd_vaccine_id),
+    by = c("Platform", "Subcategory", "phase")
+  ) %>% 
+  transmute(
+    ids = map2(ids, cgd_ids, ~ bind_cols(.x, sample_frac(.y))) # Randomly match IDs
+  ) %>% 
+  unnest(ids)
 
 # Test Data --------------------------------------------------------------------
 
