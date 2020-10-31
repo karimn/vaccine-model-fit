@@ -75,14 +75,18 @@ get_candidate_draws <- function(candidate_data, replications, dordered,
   return(draws)
 }
 
+get_summary_success_rates <- function(draws) {
+  draws %>% 
+    group_by(vacc_group_id) %>% 
+    summarize(
+      success_rate = mean(success_rate),
+      .groups = "drop"
+    ) %>% 
+    ungroup()
+}
+
 summarize_draws <- function(draws) {
-    success_rates <- draws %>% 
-      group_by(vacc_group_id) %>% 
-      summarize(
-        success_rate = mean(success_rate),
-        .groups = "drop"
-      ) %>% 
-      ungroup()
+    success_rates <- get_summary_success_rates(draws) 
     
     success_corr <- draws %>% 
       pivot_wider(id_cols = r, names_from = vacc_group_id, values_from = success_rate) %>% 

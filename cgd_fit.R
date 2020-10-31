@@ -162,7 +162,16 @@ cgd_optim_data %<>%
       ),
       .progress = TRUE),
     run_summary = map(param_data, filter, step == n()) %>%  
-      future_map(quick_get_summary, summary_type = "success_rates", candidate_data = candidate_data, dordered = dordered, maxcand = maxcand, .progress = TRUE)
+      future_map(~ {
+        get_candidate_draws(
+          candidate_data = candidate_data, replications = 3e5, dordered = dordered,
+          param = .x,
+          maxcand = maxcand,
+          group_vaccines_by = group_vaccines_by
+        ) %>%
+          get_summary_success_rate()
+      },
+      .progress = TRUE)
   )
 
 cat("...done.\n")
