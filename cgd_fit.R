@@ -169,7 +169,7 @@ cgd_optim_data %<>%
           maxcand = maxcand,
           group_vaccines_by = group_vaccines_by
         ) %>%
-          get_summary_success_rate()
+          get_summary_success_rates()
       },
       .progress = TRUE)
   )
