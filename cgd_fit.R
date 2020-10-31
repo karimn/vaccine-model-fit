@@ -149,7 +149,7 @@ cat("Second stage...")
 
 cgd_optim_data %<>% 
   mutate(
-    param_data = future_map2_dfr(
+    param_data = future_map2(
       cgd_summary, param_data,
       ~ optim_run(
         NULL,
