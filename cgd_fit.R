@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 
 "Usage:
-  cgd_fit.R [--num-runs=<runs> --append-stage-2=<run-data-file> --output=<run-data-file>]
+  cgd_fit.R [--num-runs=<runs> --append-stage-2=<run-data-file> --output=<run-data-file> --no-vcov-moments]
   
 Options:
   --num-runs=<runs>  Number of runs per month [default: 1]
@@ -133,6 +133,7 @@ if (is_null(script_options$append_stage_2)) {
         NULL, 
         .x, 
         initial_par = initial_par,
+        use_vcov_moments = !script_options$no_vcov_moments,
         maxcand = maxcand),
       .progress = TRUE
     )

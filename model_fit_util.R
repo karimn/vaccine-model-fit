@@ -186,7 +186,7 @@ build_gmm_g <- function(candidate_data, dordered, x, replications, maxcand,
   }
 }
 
-optim_run <- function(run_id, summaries, maxcand, prev_run_data = NULL, replications = 20e3, 
+optim_run <- function(run_id, summaries, maxcand, prev_run_data = NULL, replications = 20e3, use_vcov_moments = TRUE, 
                       initial_par = c(poverall = 0.5, psubcat = 0.5, 
                                       pvector = 0.5, psubunit = 0.5, prna = 0.5, pdna = 0.5, pinactivated = 0.5,
                                       pphase1 = 0.5, pphase2 = 0.5, pphase3 = 0.5),
@@ -209,7 +209,7 @@ optim_run <- function(run_id, summaries, maxcand, prev_run_data = NULL, replicat
       candidate_data, dordered = dordered, x = summaries, 
       replications = replications, 
       maxcand = maxcand, 
-      use_vcov_moments = TRUE, 
+      use_vcov_moments = use_vcov_moments, 
       group_vaccines_by = group_vaccines_by, 
       sim_seed = run_seed,
       fixed_model_probs = fixed_model_probs,
