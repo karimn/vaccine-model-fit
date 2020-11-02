@@ -1,15 +1,16 @@
 #!/usr/bin/env Rscript
 
 "Usage:
-  cgd_fit.R [--num-runs=<runs> --append-stage-2=<run-data-file> --output=<run-data-file> --no-vcov-moments]
+  cgd_fit.R [--num-runs=<runs> --num-months=<months> --append-stage-2=<run-data-file> --output=<run-data-file> --no-vcov-moments]
   
 Options:
   --num-runs=<runs>  Number of runs per month [default: 1]
   --output=<run-data-file>  Where to store output [default: cgd_optim.rds]
+  --num-months=<months>  Number of months to fit with the CGD data [default: 12]
 " -> opt_desc
 
 script_options <- if (interactive()) {
-  docopt::docopt(opt_desc, '')
+  docopt::docopt(opt_desc, '--output=test.rds --num-runs=1 --num-months=1')
 } else {
   docopt::docopt(opt_desc)
 }
@@ -24,12 +25,14 @@ library(R6)
 
 library(vaccineEarlyInvest)
 
-plan(multiprocess)
+if (!interactive()) {
+  plan(multiprocess)
+}
 
 source("model_fit_util.R")
 
 script_options %<>% 
-  modify_at(c("num_runs"), as.integer)
+  modify_at(c("num_runs", "num_months"), as.integer)
 
 # Load the CGD data and convert it ----------------------------------------
 
@@ -100,7 +103,7 @@ cgd_id_dict <- get_candidate_draws(
   unnest(ids)
 
 cgd_draws_month <- lubridate::as_date("2020/10/01")
-fit_month_offsets <- seq(12) + 8
+fit_month_offsets <- seq(script_options$num_months) + 8
 
 initial_par <- c(poverall = 0.5, psubcat = 0.5, 
                  pvector = 0.5, psubunit = 0.5, prna = 0.5, pdna = 0.5, pinactivated = 0.5, pattenuated = 0.5,
@@ -108,16 +111,21 @@ initial_par <- c(poverall = 0.5, psubcat = 0.5,
 
 # CGD Fit -----------------------------------------------------------------
 
-cgd_optim_data <- tibble(
+cgd_data <- tibble(
   month_offset = fit_month_offsets,
   month = cgd_draws_month + months(fit_month_offsets)
 ) %>% 
   rowwise() %>% 
   mutate(
-    cgd_summary = list(convert_cgd_trials(month_offset, cgd_trials, cgd_id_dict)) %>% 
-      future_map(summarize_draws)
+    cgd_converted = list(convert_cgd_trials(month_offset, cgd_trials, cgd_id_dict)) 
   ) %>% 
   ungroup()
+
+cgd_optim_data <- cgd_data %>%  
+  mutate(
+    cgd_summary = future_map(cgd_converted, summarize_draws)
+  ) %>% 
+  select(-cgd_converted)
 
 cgd_optim_data %<>% 
   modelr::data_grid(run_id = seq(script_options$num_runs), month_offset) %>% 
@@ -185,7 +193,7 @@ if (!interactive()) {
 
 # Plot --------------------------------------------------------------------
 
-cgd_optim_data %>% { 
+cgd_optim_data %>% {
     cowplot::plot_grid(
     #   pivot_longer(., -c(step, run_id), names_to = "param_name", values_to = "param_val") %>% 
     #     ggplot() +
@@ -213,31 +221,72 @@ cgd_optim_data %>% {
         ggplot(.) +
         geom_line(aes(month, success_rate, group = run_id), alpha = 0.5,
                   data = . %>%
-                    mutate(run_summary = map2(run_summary, cgd_summary, ~ semi_join(.x, .y$success_rates, by = "vacc_group_id"))) %>% 
+                    rowwise() %>% 
+                    mutate(run_summary = list(semi_join(run_summary, cgd_summary$success_rates, by = "vacc_group_id"))) %>% 
+                    ungroup() %>% 
                     select(run_id, month, run_summary) %>% 
                     unnest(run_summary)) +
-        geom_line(aes(month, success_rate), color = "red", 
-                  data = . %>% 
-                    filter(run_id == 1) %>% 
-                    select(month, cgd_summary) %>% 
-                    mutate(cgd_summary = map(cgd_summary, pluck, "success_rates")) %>% 
-                    unnest(cgd_summary)) + 
-                    # left_join(cgd_id_dict, by = c("vacc_group_id" = "candInd"))) + 
+        geom_line(aes(month, success_rate), color = "red",
+                  data = . %>%
+                    filter(run_id == 1) %>%
+                    select(month, cgd_summary) %>%
+                    rowwise() %>%
+                    mutate(cgd_summary = list(cgd_summary$success_rates)) %>%
+                    ungroup() %>%
+                    unnest(cgd_summary)) +
         scale_x_date("", breaks = "2 months", labels = scales::date_format("%m/%y")) +
         labs(title = "Solution moments",
              subtitle = "Restricted to phase 2 and 3 vaccines.",
              caption = "Using 10 runs.\nThe red line is the moment calculated from the CGD model data.", y = "") +
-        facet_wrap(vars(vacc_group_id), 
-                   labeller = labeller(
-                     vacc_group_id = function(ids) { 
-                       cgd_id_dict %>% 
-                         right_join(tibble(candInd = as.integer(ids)), by = c("candInd")) %$% 
-                         str_glue("CGD ID: {cgd_vaccine_id}\n{Platform}\n{Subcategory}\n{phase}") %>% 
-                         as.character()
-                     })) +
+        facet_wrap(
+          vars(vacc_group_id),
+          labeller = labeller(
+            vacc_group_id = function(ids) {
+              # cgd_id_dict %>%
+              left_join(tibble(candInd = as.integer(ids)), cgd_id_dict, by = c("candInd")) %$%
+                str_glue("CGD ID: {cgd_vaccine_id}\n{Platform}\n{Subcategory}\n{phase}") %>%
+                as.character()
+            }
+          )
+        ) +
         theme_minimal() +
         theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
         NULL
     )
-  }
+}
 
+# cgd_optim_data %>% 
+#   ggplot() +
+#   geom_line(aes(month, success_rate, group = run_id), alpha = 0.5,
+#             data = . %>%
+#               rowwise() %>% 
+#               mutate(run_summary = list(semi_join(run_summary, cgd_summary$success_rates, by = "vacc_group_id"))) %>% 
+#               ungroup() %>% 
+#               select(run_id, month, run_summary) %>% 
+#               unnest(run_summary)) +
+#   geom_line(aes(month, success_rate), color = "red",
+#             data = . %>%
+#               filter(run_id == 1) %>%
+#               select(month, cgd_summary) %>%
+#               rowwise() %>%
+#               mutate(cgd_summary = list(cgd_summary$success_rates)) %>%
+#               ungroup() %>%
+#               unnest(cgd_summary)) +
+#   scale_x_date("", breaks = "2 months", labels = scales::date_format("%m/%y")) +
+#   labs(title = "Solution moments",
+#        subtitle = "Restricted to phase 2 and 3 vaccines.",
+#        caption = "Using 10 runs.\nThe red line is the moment calculated from the CGD model data.", y = "") +
+#   facet_grid(
+#     vars(vacc_group_id),
+#     labeller = labeller(
+#       vacc_group_id = function(ids) {
+#         # cgd_id_dict %>%
+#         left_join(tibble(candInd = as.integer(ids)), cgd_id_dict, by = c("candInd")) %$%
+#           str_glue("CGD ID: {cgd_vaccine_id}\n{Platform}\n{Subcategory}\n{phase}") %>%
+#           as.character()
+#       }
+#     )
+#   ) +
+#   theme_minimal() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+#   NULL
