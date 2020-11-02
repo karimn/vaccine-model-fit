@@ -94,7 +94,7 @@ cgd_id_dict <- get_candidate_draws(
       nest(cgd_ids = cgd_vaccine_id),
     by = c("Platform", "Subcategory", "phase")
   ) %>% 
-  transmute(
+  mutate(
     ids = map2(ids, cgd_ids, ~ bind_cols(.x, sample_frac(.y))) # Randomly match IDs
   ) %>% 
   unnest(ids)
@@ -192,37 +192,48 @@ cgd_optim_data %>% {
     #     facet_wrap(vars(param_name), scales = "free") +
     #     labs(y = "") +
     #     theme_minimal(),
-      
-      group_by(., run_id) %>%
+     
+      select(., run_id, month, param_data) %>% 
+        unnest(param_data) %>% 
+        group_by(run_id, month) %>%
         filter(step == n()) %>%
         ungroup() %>%
         select(-obj) %>%  
-        pivot_longer(., -c(step, run_group_id, run_id, month), names_to = "param_name", values_to = "param_val") %>% 
+        pivot_longer(., -c(step, run_id, month), names_to = "param_name", values_to = "param_val") %>% 
         ggplot() +
-        geom_line(aes(month, param_val, group = run_group_id)) +
-        # geom_line(aes(month, param_val, color = param_name)) +
-        scale_x_date("", breaks = "1 month", labels = scales::date_format("%m/%y")) +
-        # scale_color_discrete("") +
-        labs(y = "") +
+        geom_line(aes(month, param_val, group = run_id), alpha = 0.5) +
+        scale_x_date("", breaks = "2 months", labels = scales::date_format("%m/%y")) +
+        labs(title = "Parameter fit solutions", y = "") +
         facet_wrap(vars(param_name)) +
         theme_minimal() +
         theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
         NULL,
     
-      group_by(., run_id) %>%
-        filter(step == n()) %>%
-        ungroup() %>%
-        select(run_group_id, run_id, all_of(param_names)) %>%
-        group_by(run_group_id, run_id) %>%
-        group_modify(quick_get_summary, summary_type = "success_rates", candidate_data = candidate_data, dordered = dordered, maxcand = maxcand, group_vaccines_by = group_vaccines_by) %>%
-        ungroup() %>%
-        ggplot() +
-        geom_line(aes(month, success_rate, group = group_run_id), color = "darkred") +
-        # geom_col(aes(run_id, success_rate, fill = factor(run_id)), alpha = 0.75, show.legend = FALSE) +
-        # geom_hline(aes(yintercept = success_rate), linetype = "dashed", data = test_summaries$success_rates) +
-        scale_x_date("", breaks = "1 month", labels = scales::date_format("%m/%y")) +
-        labs(y = "") +
-        facet_wrap(vars(vacc_group_id)) +
+        ggplot(.) +
+        geom_line(aes(month, success_rate, group = run_id), alpha = 0.5,
+                  data = . %>%
+                    mutate(run_summary = map2(run_summary, cgd_summary, ~ semi_join(.x, .y$success_rates, by = "vacc_group_id"))) %>% 
+                    select(run_id, month, run_summary) %>% 
+                    unnest(run_summary)) +
+        geom_line(aes(month, success_rate), color = "red", 
+                  data = . %>% 
+                    filter(run_id == 1) %>% 
+                    select(month, cgd_summary) %>% 
+                    mutate(cgd_summary = map(cgd_summary, pluck, "success_rates")) %>% 
+                    unnest(cgd_summary)) + 
+                    # left_join(cgd_id_dict, by = c("vacc_group_id" = "candInd"))) + 
+        scale_x_date("", breaks = "2 months", labels = scales::date_format("%m/%y")) +
+        labs(title = "Solution moments",
+             subtitle = "Restricted to phase 2 and 3 vaccines.",
+             caption = "Using 10 runs.\nThe red line is the moment calculated from the CGD model data.", y = "") +
+        facet_wrap(vars(vacc_group_id), 
+                   labeller = labeller(
+                     vacc_group_id = function(ids) { 
+                       cgd_id_dict %>% 
+                         right_join(tibble(candInd = as.integer(ids)), by = c("candInd")) %$% 
+                         str_glue("CGD ID: {cgd_vaccine_id}\n{Platform}\n{Subcategory}\n{phase}") %>% 
+                         as.character()
+                     })) +
         theme_minimal() +
         theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
         NULL

@@ -265,7 +265,7 @@ convert_cgd_trials <- function(start_month_offset, cgd_trials, id_dict) {
     mutate(success_rate = 1) %>% 
     complete(r, vaccine_id = id_dict$cgd_vaccine_id) %>% 
     mutate(success_rate = coalesce(success_rate, 0L)) %>% 
-    inner_join(id_dict, by = c("vaccine_id" = "cgd_vaccine_id")) %>% # inner_ to exclude vaccines we are not considering (e.g. pre-clinical) 
+    inner_join(select(id_dict, candInd, cgd_vaccine_id), by = c("vaccine_id" = "cgd_vaccine_id")) %>% # inner_ to exclude vaccines we are not considering (e.g. pre-clinical) 
     rename(vacc_group_id = candInd)
 }
 
