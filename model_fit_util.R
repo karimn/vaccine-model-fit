@@ -88,13 +88,6 @@ get_summary_success_rates <- function(draws) {
 summarize_draws <- function(draws) {
     success_rates <- get_summary_success_rates(draws) 
     
-    success_corr <- draws %>% 
-      pivot_wider(id_cols = r, names_from = vacc_group_id, values_from = success_rate) %>% 
-      select(-r) %>% 
-      as.data.frame() %>% 
-      pcaPP::cor.fk() %>% # Faster than base cor()
-      magrittr::extract(lower.tri(.)) # Get lower triangle
-    
     success_vcov <- draws %>% 
       pivot_wider(id_cols = r, names_from = vacc_group_id, values_from = success_rate) %>% 
       select(-r) %>% 
@@ -102,7 +95,7 @@ summarize_draws <- function(draws) {
       cov() %>% 
       magrittr::extract(lower.tri(.)) # Get lower triangle
     
-    lst(success_rates, success_corr, success_vcov)
+    lst(success_rates, success_vcov)
 }
 
 calculate_draws_vcov <- function(draws) {
