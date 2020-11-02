@@ -219,21 +219,25 @@ cgd_optim_data %>% {
         NULL,
     
         ggplot(.) +
-        geom_line(aes(month, success_rate, group = run_id), alpha = 0.5,
-                  data = . %>%
-                    rowwise() %>% 
-                    mutate(run_summary = list(semi_join(run_summary, cgd_summary$success_rates, by = "vacc_group_id"))) %>% 
-                    ungroup() %>% 
-                    select(run_id, month, run_summary) %>% 
-                    unnest(run_summary)) +
-        geom_line(aes(month, success_rate), color = "red",
-                  data = . %>%
-                    filter(run_id == 1) %>%
-                    select(month, cgd_summary) %>%
-                    rowwise() %>%
-                    mutate(cgd_summary = list(cgd_summary$success_rates)) %>%
-                    ungroup() %>%
-                    unnest(cgd_summary)) +
+        geom_line(
+          aes(month, success_rate, group = run_id), alpha = 0.5,
+          data = . %>%
+            rowwise() %>% 
+            mutate(run_summary = list(semi_join(run_summary, cgd_summary$success_rates, by = "vacc_group_id"))) %>% 
+            ungroup() %>% 
+            select(run_id, month, run_summary) %>% 
+            unnest(run_summary) 
+        ) +
+        geom_line(
+          aes(month, success_rate), color = "red",
+          data = . %>%
+            filter(run_id == 1) %>%
+            select(month, cgd_summary) %>%
+            rowwise() %>%
+            mutate(cgd_summary = list(cgd_summary$success_rates)) %>%
+            ungroup() %>%
+            unnest(cgd_summary) 
+        ) +
         scale_x_date("", breaks = "2 months", labels = scales::date_format("%m/%y")) +
         labs(title = "Solution moments",
              subtitle = "Restricted to phase 2 and 3 vaccines.",
@@ -242,7 +246,6 @@ cgd_optim_data %>% {
           vars(vacc_group_id),
           labeller = labeller(
             vacc_group_id = function(ids) {
-              # cgd_id_dict %>%
               left_join(tibble(candInd = as.integer(ids)), cgd_id_dict, by = c("candInd")) %$%
                 str_glue("CGD ID: {cgd_vaccine_id}\n{Platform}\n{Subcategory}\n{phase}") %>%
                 as.character()
