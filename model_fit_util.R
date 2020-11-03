@@ -144,7 +144,6 @@ build_gmm_g <- function(candidate_data, dordered, x, replications, maxcand,
                         fixed_model_probs = NULL, 
                         logger = NULL, 
                         calculate_objective = FALSE, 
-                        # weighting_matrix = diag(nrow(dordered) + use_vcov_moments * sum(seq(nrow(ordered) - 1))), 
                         weighting_matrix = NULL, 
                         verbose = FALSE) {
   function(pbeta, ...) {
@@ -199,6 +198,7 @@ optim_run <- function(run_id, summaries, maxcand, prev_run_data = NULL, replicat
                       fixed_model_probs = c(poverall=0.9, psubcat=0.9, 
                                             pvector=0.8, psubunit=0.8, prna=0.6, pdna=0.4, pattenuated=0.8, pinactivated=0.8, 
                                             ppreclinical=0.14, pphase1=0.23, pphase2=0.32, pphase3=0.5),
+                      weighting_matrix = NULL,
                       ndeps = rep_along(initial_par, 1e-2)) {
   test_optim_log <- OptimLogger$new()
   run_seed <- as.integer(Sys.time()) %% 1e5
@@ -216,6 +216,7 @@ optim_run <- function(run_id, summaries, maxcand, prev_run_data = NULL, replicat
       replications = replications, 
       maxcand = maxcand, 
       use_vcov_moments = use_vcov_moments, 
+      weighting_matrix = weighting_matrix,
       group_vaccines_by = group_vaccines_by, 
       sim_seed = run_seed,
       fixed_model_probs = fixed_model_probs,
