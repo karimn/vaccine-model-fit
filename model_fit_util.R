@@ -105,10 +105,15 @@ calculate_draws_vcov <- function(draws) {
     cov() 
 }
 
-OptimLogger <- R6Class("OptimLogger", 
-                       list(
-                         data = tibble(),
-                         log = function(...) { self$data %<>% bind_rows(tibble(!!!rlang::list2(...))) }))
+OptimLogger <- R6Class(
+  "OptimLogger", 
+   list(
+     data = tibble(),
+     draw_summary = tibble(),
+     log_param = function(...) { self$data %<>% bind_rows(tibble(!!!rlang::list2(...))) },
+     log_summary = function(summary) { self$draw_summary <- summary }
+   )
+)
 
 calculate_moments <- function(model_summaries, x, use_vcov_moments = FALSE) {
   moments <- full_join(model_summaries$success_rates, x$success_rates, by = "vacc_group_id") %>%
@@ -175,7 +180,8 @@ build_gmm_g <- function(candidate_data, dordered, x, replications, maxcand,
    objective <- calculate_objective(moments, weighting_matrix) 
     
     if (!is_null(logger)) {
-      logger$log(!!!all_model_probs, obj = objective) 
+      logger$log_param(!!!all_model_probs, obj = objective) 
+      logger$log_summary(model_summaries)
     }
    
     if(calculate_objective) {
@@ -223,7 +229,11 @@ optim_run <- function(run_id, summaries, maxcand, prev_run_data = NULL, replicat
   )
  
   run_data <- test_optim_log$data %>%
-    mutate(run_id, step = seq(n())) 
+    mutate(
+      run_id, 
+      step = seq(n()),
+      summary = map_if(seq(n()), step == n(), ~ test_optim_log$draw_summary, .else = ~ NULL) 
+    )
   
   if (!is_null(prev_run_data)) {
     run_data %<>%
@@ -253,9 +263,8 @@ quick_get_summary <- function(param, ..., candidate_data, dordered, maxcand, gro
 
 convert_cgd_trials <- function(start_month_offset, cgd_trials, id_dict) {
   cgd_trials %>% 
-    filter(phase_mon_approval <= start_month_offset) %>% 
     rename(r = try_id) %>% 
-    mutate(success_rate = 1) %>% 
+    mutate(success_rate = !is.na(phase_mon_approval) & phase_mon_approval <= start_month_offset) %>% 
     complete(r, vaccine_id = id_dict$cgd_vaccine_id) %>% 
     mutate(success_rate = coalesce(success_rate, 0L)) %>% 
     inner_join(select(id_dict, candInd, cgd_vaccine_id), by = c("vaccine_id" = "cgd_vaccine_id")) %>% # inner_ to exclude vaccines we are not considering (e.g. pre-clinical) 

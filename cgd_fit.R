@@ -10,7 +10,7 @@ Options:
 " -> opt_desc
 
 script_options <- if (interactive()) {
-  docopt::docopt(opt_desc, '--output=test.rds --num-runs=1 --num-months=1')
+  docopt::docopt(opt_desc, '--output=test.rds --num-runs=1')
 } else {
   docopt::docopt(opt_desc)
 }
@@ -170,18 +170,10 @@ cgd_optim_data %<>%
         ndeps = rep_along(initial_par, 2e-3)
       ),
       .progress = TRUE),
-    run_summary = map(param_data, filter, step == n()) %>%  
-      future_map(~ {
-        get_candidate_draws(
-          candidate_data = candidate_data, replications = 3e5, dordered = dordered,
-          param = .x,
-          maxcand = maxcand,
-          group_vaccines_by = group_vaccines_by
-        ) %>%
-          get_summary_success_rates()
-      },
-      .progress = TRUE)
-  )
+  ) %>% 
+  rowwise() %>% 
+  mutate(run_summary = list(last(param_data$summary))) %>% 
+  ungroup()
 
 cat("...done.\n")
 
@@ -257,39 +249,3 @@ cgd_optim_data %>% {
         NULL
     )
 }
-
-# cgd_optim_data %>% 
-#   ggplot() +
-#   geom_line(aes(month, success_rate, group = run_id), alpha = 0.5,
-#             data = . %>%
-#               rowwise() %>% 
-#               mutate(run_summary = list(semi_join(run_summary, cgd_summary$success_rates, by = "vacc_group_id"))) %>% 
-#               ungroup() %>% 
-#               select(run_id, month, run_summary) %>% 
-#               unnest(run_summary)) +
-#   geom_line(aes(month, success_rate), color = "red",
-#             data = . %>%
-#               filter(run_id == 1) %>%
-#               select(month, cgd_summary) %>%
-#               rowwise() %>%
-#               mutate(cgd_summary = list(cgd_summary$success_rates)) %>%
-#               ungroup() %>%
-#               unnest(cgd_summary)) +
-#   scale_x_date("", breaks = "2 months", labels = scales::date_format("%m/%y")) +
-#   labs(title = "Solution moments",
-#        subtitle = "Restricted to phase 2 and 3 vaccines.",
-#        caption = "Using 10 runs.\nThe red line is the moment calculated from the CGD model data.", y = "") +
-#   facet_grid(
-#     vars(vacc_group_id),
-#     labeller = labeller(
-#       vacc_group_id = function(ids) {
-#         # cgd_id_dict %>%
-#         left_join(tibble(candInd = as.integer(ids)), cgd_id_dict, by = c("candInd")) %$%
-#           str_glue("CGD ID: {cgd_vaccine_id}\n{Platform}\n{Subcategory}\n{phase}") %>%
-#           as.character()
-#       }
-#     )
-#   ) +
-#   theme_minimal() +
-#   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
-#   NULL
