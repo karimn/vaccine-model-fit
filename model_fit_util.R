@@ -162,7 +162,7 @@ build_gmm_g <- function(candidate_data, dordered, x, replications, maxcand,
 
     model_summaries <- summarize_draws(draws) 
     
-    moments <- calculate_moments(model_summaries, x) 
+    moments <- calculate_moments(model_summaries, x, use_vcov_moments = use_vcov_moments) 
 
    # moments <- full_join(x, model_summaries$success_rates, by = "vacc_group_id") %>%
    #    mutate_at(vars(starts_with("success_rate")), coalesce, 0) %>%
@@ -175,7 +175,7 @@ build_gmm_g <- function(candidate_data, dordered, x, replications, maxcand,
     if (is_null(weighting_matrix)) {
       weighting_matrix <- diag(length(moments))
     }
-   
+    
    objective <- calculate_objective(moments, weighting_matrix) 
     
     if (!is_null(logger)) {
