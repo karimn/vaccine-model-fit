@@ -340,10 +340,10 @@
     },
     "future": {
       "Package": "future",
-      "Version": "1.20.1",
+      "Version": "1.19.1",
       "Source": "Repository",
       "Repository": "CRAN",
-      "Hash": "ba8048a1641465f807c52b78d1eae18a"
+      "Hash": "224cbc34a2c97606b0e6311e3bd19e05"
     },
     "generics": {
       "Package": "generics",
@@ -604,13 +604,6 @@
       "Repository": "CRAN",
       "Hash": "a399e4773075fc2375b71f45fca186c4"
     },
-    "parallelly": {
-      "Package": "parallelly",
-      "Version": "1.21.0",
-      "Source": "Repository",
-      "Repository": "CRAN",
-      "Hash": "bbf1e5cf8653a539e4659c8c40f17b72"
-    },
     "pillar": {
       "Package": "pillar",
       "Version": "1.4.6",
@@ -733,7 +726,9 @@
     "renv": {
       "Package": "renv",
       "Version": "0.12.1",
-      "Source": "Repository"
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "b95626d4e5b1ec52f47ee4e156926bf2"
     },
     "reprex": {
       "Package": "reprex",
