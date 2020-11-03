@@ -10,6 +10,7 @@ Options:
   --append-stage-2=<run-data-file>
   --no-vcov-moments
   --vcov-moments-weight=<weight>  Weighting matrix weight for covariance moments [default: 1]
+  --parallel=<cores>
 " -> opt_desc
 
 script_options <- if (interactive()) {
@@ -81,23 +82,27 @@ maxcand <- 50
 candidate_data <- load_candidate_data(file.path("data", "vaccinesSummaryCGD.csv"))
 dordered <- calc_dordered(candidate_data, maxcand = maxcand)
 
-cgd_id_dict <- get_candidate_draws(
-  candidate_data, replications = 1, dordered = dordered,
-    maxcand = maxcand,
-    group_vaccines_by = group_vaccines_by
-  ) %>% 
-  select(candInd, Platform, Subcategory, phase) %>% 
-  nest(ids = candInd) %>% 
-  right_join(
-    cgd_master_input %>% 
-      filter(fct_match(phase, c("Phase 2", "Phase 3"))) %>% 
-      nest(cgd_ids = cgd_vaccine_id),
-    by = c("Platform", "Subcategory", "phase")
-  ) %>% 
-  mutate(
-    ids = map2(ids, cgd_ids, ~ bind_cols(.x, sample_frac(.y))) # Randomly match IDs
-  ) %>% 
-  unnest(ids)
+cgd_id_dict <- if (FALSE) {
+  get_candidate_draws(
+    candidate_data, replications = 1, dordered = dordered,
+      maxcand = maxcand,
+      group_vaccines_by = group_vaccines_by
+    ) %>% 
+    select(candInd, Platform, Subcategory, phase) %>% 
+    nest(ids = candInd) %>% 
+    right_join(
+      cgd_master_input %>% 
+        filter(fct_match(phase, c("Phase 2", "Phase 3"))) %>% 
+        nest(cgd_ids = cgd_vaccine_id),
+      by = c("Platform", "Subcategory", "phase")
+    ) %>% 
+    mutate(
+      ids = map2(ids, cgd_ids, ~ bind_cols(.x, sample_frac(.y))) # Randomly match IDs
+    ) %>% 
+    unnest(ids)
+} else {
+  read_rds(file.path("data", "cgd_id_dict.rds"))
+}
 
 cgd_draws_month <- lubridate::as_date("2020/10/01")
 fit_month_offsets <- seq(script_options$num_months) + 8
@@ -140,14 +145,15 @@ if (is_null(script_options$append_stage_2)) {
   cgd_optim_data %<>% 
     mutate(param_data = future_map(
       cgd_summary,
-      ~ optim_run(
-        NULL, 
-        .x, 
-        initial_par = initial_par,
-        use_vcov_moments = !script_options$no_vcov_moments,
-        weighting_matrix = weighting_matrix,
-        maxcand = maxcand),
-      
+      function(summary) {
+        optim_run(
+          NULL, 
+          summary, 
+          initial_par = initial_par,
+          use_vcov_moments = !script_options$no_vcov_moments,
+          weighting_matrix = weighting_matrix,
+          maxcand = maxcand)
+      },
       .progress = TRUE
     )
   ) 
@@ -165,15 +171,19 @@ cgd_optim_data %<>%
   mutate(
     param_data = future_map2(
       cgd_summary, param_data,
-      ~ optim_run(
-        NULL,
-        .x,
-        prev_run_data = .y,
-        initial_par = initial_par,
-        maxcand = maxcand,
-        replications = 100e3, 
-        ndeps = rep_along(initial_par, 2e-3)
-      ),
+      function(summary, prev_run_data) {
+        optim_run(
+          NULL,
+          summary,
+          prev_run_data = prev_run_data,
+          initial_par = initial_par,
+          use_vcov_moments = !script_options$no_vcov_moments,
+          weighting_matrix = weighting_matrix,
+          maxcand = maxcand,
+          replications = 100e3, 
+          ndeps = rep_along(initial_par, 2e-3)
+        )
+      },
       .progress = TRUE),
   ) %>% 
   rowwise() %>% 
