@@ -132,7 +132,9 @@ plot_vacc_type_success_rates <- function(optim_data) {
       vars(vacc_type_id),
       labeller = labeller(
         vacc_type_id = function(ids) {
-          left_join(tibble(vacc_type_id = as.integer(ids)), cgd_id_dict, by = c("vacc_type_id")) %$%
+          left_join(tibble(vacc_type_id = as.integer(ids)), 
+                    distinct(cgd_id_dict, vacc_type_id, Platform, Subcategory, phase), 
+                    by = c("vacc_type_id")) %$%
             str_glue("{Platform}\n{Subcategory}\n{phase}") %>%
             as.character()
         }
