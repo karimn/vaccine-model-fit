@@ -30,17 +30,24 @@ cgd_id_dict <- read_rds(file.path("data", "cgd_id_dict.rds")) %>%
 ```
 
 ```{r}
-plot_model_param <- function(optim_data) {
+plot_model_param <- function(optim_data, .baseline_param = baseline_param, other_types = NULL) {
+  baseline_param_data <- .baseline_param %>% 
+    enframe(name = "param_name", value = "param_val")
+  
   optim_data %>% 
-    select(run_id, month, param_data) %>% 
+    select(run_id, month, param_data, {{ other_types }}) %>% 
     unnest(param_data) %>% 
-    group_by(run_id, month) %>%
+    group_by(run_id, month, {{ other_types }}) %>%
     filter(step == n()) %>%
     ungroup() %>%
     select(!c(obj, summary)) %>%  
-    pivot_longer(., -c(step, run_id, month), names_to = "param_name", values_to = "param_val") %>% 
+    pivot_longer(., -c(step, run_id, month, {{ other_types }}), names_to = "param_name", values_to = "param_val") %>% 
     ggplot() +
-    geom_line(aes(month, param_val, group = run_id), alpha = 0.5) +
+    geom_hline(aes(yintercept = param_val), linetype = "dashed", 
+               data = . %>% 
+                 modelr::data_grid(param_name, month) %>% 
+                 left_join(baseline_param_data, by = "param_name")) +
+    geom_line(aes(month, param_val, group = str_c(run_id, {{ other_types }}), color = {{ other_types }}), alpha = 0.5) +
     scale_x_date("", breaks = "2 months", labels = scales::date_format("%m/%y")) +
     labs(title = "Parameter fit solutions", y = "") +
     facet_wrap(vars(param_name)) +
@@ -139,12 +146,22 @@ plot_vacc_type_success_rates <- function(optim_data) {
 
 Using 10 simulation runs.
 
-## All Moments
-
 ```{r}
-cgd_optim_data %>%
-  plot_model_param()
+bind_rows(
+  "All" = cgd_optim_data,
+  "Down-weighted Covariance" = weighted_vcov_cgd_optim_data,
+  "No Covariance" = novcov_cgd_optim_data,
+  
+  .id = "optim_type" 
+) %>% 
+  plot_model_param(other_types = optim_type) +
+  scale_color_discrete("Moments") +
+  theme(legend.position = "top")
 ```
+
+# Success Probabilities
+
+## All Moments
 
 ```{r, fig.height=9}
 cgd_optim_data %>% 
@@ -158,11 +175,6 @@ cgd_optim_data %>%
 
 ## Down-weighted Covariance Moments
 
-```{r}
-weighted_vcov_cgd_optim_data %>%
-  plot_model_param()
-```
-
 ```{r, fig.height=9}
 weighted_vcov_cgd_optim_data %>%
   plot_success_rates()
@@ -174,12 +186,6 @@ weighted_vcov_cgd_optim_data %>%
 ```
 
 ## No Covariance Moments
-
-```{r}
-novcov_cgd_optim_data %>%
-  plot_model_param()
-```
-
 
 ```{r, fig.height=9}
 novcov_cgd_optim_data %>% 

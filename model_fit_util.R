@@ -1,5 +1,9 @@
 param_names <- c("poverall", "psubunit", "prna", "pdna", "pattenuated", "pinactivated", "ppreclinical", "pphase1", "pphase2", "pphase3")
 
+baseline_param <- c(poverall=0.9, psubcat=0.9,
+                    pvector=0.8, psubunit=0.8, prna=0.6, pdna=0.4, pattenuated=0.8, pinactivated=0.8, 
+                    ppreclinical=0.14, pphase1=0.23, pphase2=0.32, pphase3=0.5)
+
 load_candidate_data <- function(data_file) {
   candidate_data <- loadData(par = NULL, data_file)
   
@@ -17,7 +21,7 @@ calc_dordered <- function(candidate_data, maxcand) {
 }
 
 get_candidate_draws <- function(candidate_data, replications, dordered, 
-                                param = c(poverall=0.9, psubcat=0.9, pvector=0.8, psubunit=0.8, prna=0.6, pdna=0.4, pattenuated=0.8, pinactivated=0.8, ppreclinical=0.14, pphase1=0.23, pphase2=0.32, pphase3=0.5),
+                                param = baseline_param,
                                 maxcand,
                                 group_vaccines_by = vars(Platform, Subcategory),
                                 seed = NULL) {
@@ -195,9 +199,7 @@ optim_run <- function(run_id, summaries, maxcand, prev_run_data = NULL, replicat
                       initial_par = c(poverall = 0.5, psubcat = 0.5, 
                                       pvector = 0.5, psubunit = 0.5, prna = 0.5, pdna = 0.5, pinactivated = 0.5,
                                       pphase1 = 0.5, pphase2 = 0.5, pphase3 = 0.5),
-                      fixed_model_probs = c(poverall=0.9, psubcat=0.9, 
-                                            pvector=0.8, psubunit=0.8, prna=0.6, pdna=0.4, pattenuated=0.8, pinactivated=0.8, 
-                                            ppreclinical=0.14, pphase1=0.23, pphase2=0.32, pphase3=0.5),
+                      fixed_model_probs = baseline_param, 
                       weighting_matrix = NULL,
                       ndeps = rep_along(initial_par, 1e-2)) {
   test_optim_log <- OptimLogger$new()
