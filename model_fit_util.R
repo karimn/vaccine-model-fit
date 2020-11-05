@@ -265,12 +265,18 @@ quick_get_summary <- function(param, ..., candidate_data, dordered, maxcand, gro
 
 
 convert_cgd_trials <- function(start_month_offset, cgd_trials, id_dict) {
-  cgd_trials %>% 
+  converted <- cgd_trials %>% 
     rename(r = try_id) %>% 
     mutate(success_rate = !is.na(phase_mon_approval) & phase_mon_approval <= start_month_offset) %>% 
     complete(r, vaccine_id = id_dict$cgd_vaccine_id) %>% 
-    mutate(success_rate = coalesce(success_rate, 0L)) %>% 
-    inner_join(select(id_dict, candInd, cgd_vaccine_id), by = c("vaccine_id" = "cgd_vaccine_id")) %>% # inner_ to exclude vaccines we are not considering (e.g. pre-clinical) 
-    rename(vacc_group_id = candInd)
+    mutate(success_rate = coalesce(success_rate, 0L))
+  
+  if (!is_null(id_dict)) {
+    converted %<>% 
+      inner_join(select(id_dict, candInd, cgd_vaccine_id), by = c("vaccine_id" = "cgd_vaccine_id")) %>% # inner_ to exclude vaccines we are not considering (e.g. pre-clinical) 
+      rename(vacc_group_id = candInd)
+  } 
+  
+  return(converted)
 }
 
