@@ -14,7 +14,7 @@ Options:
 " -> opt_desc
 
 script_options <- if (interactive()) {
-  docopt::docopt(opt_desc, '--output=test.rds --num-runs=1')
+  docopt::docopt(opt_desc, '--output=test.rds --num-runs=12')
 } else {
   docopt::docopt(opt_desc)
 }
@@ -63,6 +63,9 @@ cgd_master_input <- raw_cgd_master_input %>%
   filter(!str_detect(Institutes, "Kentucky Bioprocessing")) %>% # Exists in out data as pre-clinical but also Unknown/Unknown
   transmute(
     cgd_vaccine_id = Number,
+    name = Name,
+    institutes = Institutes,
+    country = Country,
     Platform = str_replace(Platform, ".+viral vector", "Viral vector"), # Not distinguishing between replicating and non-replicating
     Subcategory,
     phase = map_chr(phase_data, ~ if (nrow(.x) > 0) str_c("Phase ", max(.x$phase)) else "Pre-clinical")
@@ -93,13 +96,14 @@ cgd_id_dict <- if (FALSE) {
     right_join(
       cgd_master_input %>% 
         filter(fct_match(phase, c("Phase 2", "Phase 3"))) %>% 
-        nest(cgd_ids = cgd_vaccine_id),
+        nest(cgd_ids = c(cgd_vaccine_id, name, institutes, country)),
       by = c("Platform", "Subcategory", "phase")
     ) %>% 
     mutate(
       ids = map2(ids, cgd_ids, ~ bind_cols(.x, sample_frac(.y))) # Randomly match IDs
     ) %>% 
-    unnest(ids)
+    select(-cgd_ids) %>% 
+    unnest(ids) 
 } else {
   read_rds(file.path("data", "cgd_id_dict.rds"))
 }
