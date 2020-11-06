@@ -152,7 +152,10 @@ if (is_null(script_options$append_stage_2)) {
           initial_par = initial_par,
           use_vcov_moments = !script_options$no_vcov_moments,
           weighting_matrix = weighting_matrix,
-          maxcand = maxcand)
+          maxcand = maxcand,
+          replications = 100e3,
+          ndeps = rep_along(initial_par, 1e-2)
+        )
       },
       .progress = TRUE
     )
