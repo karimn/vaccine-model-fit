@@ -10,6 +10,7 @@ library(data.table)
 library(magrittr)
 library(tidyverse)
 library(R6)
+library(kableExtra)
 
 library(vaccineEarlyInvest)
 
@@ -19,9 +20,12 @@ knitr::opts_chunk$set(fig.width = 9)
 ```
 
 ```{r load-data}
-cgd_optim_data <- read_rds(file.path("data", "cgd_optim.rds"))
-novcov_cgd_optim_data <- read_rds(file.path("data", "cgd_optim_novcov.rds"))
-weighted_vcov_cgd_optim_data <- read_rds(file.path("data", "cgd_optim_vcov_weighted.rds"))
+cgd_optim_data <- bind_rows(
+  "All" = read_rds(file.path("data", "cgd_optim.rds")),
+  # "Down-weighted Covariance (0.1)" = read_rds(file.path("data", "cgd_optim_vcov_weighted_0.1.rds")), 
+  
+  .id = "optim_type" 
+) 
 
 cgd_id_dict <- read_rds(file.path("data", "cgd_id_dict.rds")) %>% 
   group_by(Platform, Subcategory, phase) %>% 
@@ -29,7 +33,23 @@ cgd_id_dict <- read_rds(file.path("data", "cgd_id_dict.rds")) %>%
   ungroup()
 ```
 
-```{r}
+```{r baseline-aht-model}
+maxcand <- 50
+
+baseline_model_success_rates <- load_candidate_data(file.path("data", "vaccinesSummaryCGD.csv")) %>% 
+  get_candidate_draws(
+    candidate_data = ., 
+    dordered = calc_dordered(., maxcand = maxcand),
+    replications = 100e3, 
+    maxcand = maxcand,
+    group_vaccines_by = NULL 
+  ) %>% 
+  get_summary_success_rates() %>%
+  right_join(select(cgd_id_dict, vacc_group_id = candInd, cgd_vaccine_id, vacc_type_id), by = "vacc_group_id")
+```
+
+
+```{r plot-functions}
 plot_model_param <- function(optim_data, .baseline_param = baseline_param, other_types = NULL) {
   baseline_param_data <- .baseline_param %>% 
     enframe(name = "param_name", value = "param_val")
@@ -49,44 +69,58 @@ plot_model_param <- function(optim_data, .baseline_param = baseline_param, other
                  left_join(baseline_param_data, by = "param_name")) +
     geom_line(aes(month, param_val, group = str_c(run_id, {{ other_types }}), color = {{ other_types }}), alpha = 0.5) +
     scale_x_date("", breaks = "2 months", labels = scales::date_format("%m/%y")) +
-    labs(title = "Parameter fit solutions", y = "") +
+    labs(
+      title = "Parameter Fit", 
+      y = "",
+      caption = "Dashed horizontal line: baseline AHT model parameters."
+    ) +
     facet_wrap(vars(param_name)) +
     theme_minimal() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
     NULL
 }
 
-plot_success_rates <- function(optim_data) {
+plot_success_rates <- function(optim_data, .baseline_model_success_rates = baseline_model_success_rates, other_types = NULL) {
   optim_data %>% 
     ggplot(aes(month, success_rate)) +
+    geom_hline(aes(yintercept = success_rate), linetype = "dashed",
+               data = .baseline_model_success_rates %>% 
+                 distinct(cgd_vaccine_id, .keep_all = TRUE)) +
     geom_line(
-      aes(group = run_id), alpha = 0.5,
-      data = . %>%
-        rowwise() %>%
-        mutate(run_summary = list(semi_join(run_summary$success_rates, cgd_summary$success_rates, by = "vacc_group_id"))) %>%
-        ungroup() %>%
-        select(run_id, month, run_summary) %>%
-        unnest(run_summary)
-    ) +
-    geom_line(
-      color = "red",
       data = . %>%
         filter(run_id == 1) %>%
         select(month, cgd_summary) %>%
         rowwise() %>%
         mutate(cgd_summary = list(cgd_summary$success_rates)) %>%
         ungroup() %>%
-        unnest(cgd_summary)
+        unnest(cgd_summary) %>% 
+        left_join(cgd_id_dict, by = c("vacc_group_id" = "candInd")) %>% 
+        arrange(cgd_vaccine_id)
+    ) +
+    geom_line(
+      aes(group = str_c(run_id, {{ other_types }}), color = {{ other_types }}), alpha = 0.5,
+      data = . %>%
+        rowwise() %>%
+        mutate(run_summary = list(semi_join(run_summary$success_rates, cgd_summary$success_rates, by = "vacc_group_id"))) %>%
+        ungroup() %>%
+        select(run_id, month, run_summary, {{ other_types }}) %>%
+        unnest(run_summary) %>% 
+        left_join(cgd_id_dict, by = c("vacc_group_id" = "candInd")) %>% 
+        arrange(cgd_vaccine_id)
     ) +
     scale_x_date("", breaks = "2 months", labels = scales::date_format("%m/%y")) +
     labs(title = "Success Probability By Vaccine Candidate",
          subtitle = "Restricted to phase 2 and 3 vaccines.",
-         caption = "Using 10 runs.\nThe red line is the moment calculated from the CGD model data.", y = "") +
+         caption = "Using 10 runs.
+                    Solid line: the moment calculated from the CGD model data.
+                    Dashed horizontal line: baseline AHT model parameters.",
+         y = ""
+       ) +
     facet_wrap(
-      vars(vacc_group_id),
+      vars(cgd_vaccine_id),
       labeller = labeller(
-        vacc_group_id = function(ids) {
-          left_join(tibble(candInd = as.integer(ids)), cgd_id_dict, by = c("candInd")) %$%
+        cgd_vaccine_id = function(ids) {
+          left_join(tibble(cgd_vaccine_id = as.integer(ids)), cgd_id_dict, by = c("cgd_vaccine_id")) %$%
             str_glue("CGD ID: {cgd_vaccine_id}\n{Platform}\n{Subcategory}\n{phase}") %>%
             as.character()
         }
@@ -97,22 +131,25 @@ plot_success_rates <- function(optim_data) {
     NULL
 }
 
-plot_vacc_type_success_rates <- function(optim_data) {
+plot_vacc_type_success_rates <- function(optim_data, .baseline_model_success_rates = baseline_model_success_rates, other_types = NULL) {
   optim_data %>% 
     ggplot(aes(month, success_rate)) +
+    geom_hline(aes(yintercept = success_rate), linetype = "dashed",
+               data = .baseline_model_success_rates %>% 
+                 group_by(vacc_type_id) %>% 
+                 summarize(success_rate = mean(success_rate), .groups = "drop")) +
     geom_line(
-      aes(group = run_id), alpha = 0.5,
+      aes(group = str_c(run_id, {{ other_types }}), color = {{ other_types }}), alpha = 0.5,
       data = . %>%
         rowwise() %>%
         mutate(run_summary = list(semi_join(run_summary$success_rates, cgd_summary$success_rates, by = "vacc_group_id"))) %>%
         ungroup() %>%
-        select(run_id, month, run_summary) %>%
+        select(run_id, month, run_summary, {{ other_types }}) %>%
         unnest(run_summary) %>% 
         left_join(cgd_id_dict, by = c("vacc_group_id" = "candInd")) %>% 
-        distinct(run_id, month, vacc_type_id, .keep_all = TRUE)
+        distinct(run_id, month, vacc_type_id, {{ other_types }}, .keep_all = TRUE)
     ) +
     geom_line(
-      color = "red",
       data = . %>%
         filter(run_id == 1) %>%
         select(month, cgd_summary) %>%
@@ -127,7 +164,11 @@ plot_vacc_type_success_rates <- function(optim_data) {
     scale_x_date("", breaks = "2 months", labels = scales::date_format("%m/%y")) +
     labs(title = "Success Probability By Platform-Subcategory-Phase",
          subtitle = "Restricted to phase 2 and 3 vaccines.",
-         caption = "Using 10 runs.\nThe red line is the moment calculated from the CGD model data.", y = "") +
+         caption = "Using 10 runs.
+                    Solid line: the moment calculated from the CGD model data.
+                    Dashed horizontal line: baseline AHT model parameters.",
+         y = ""
+    ) +
     facet_wrap(
       vars(vacc_type_id),
       labeller = labeller(
@@ -148,54 +189,38 @@ plot_vacc_type_success_rates <- function(optim_data) {
 
 Using 10 simulation runs.
 
-```{r}
-bind_rows(
-  "All" = cgd_optim_data,
-  "Down-weighted Covariance" = weighted_vcov_cgd_optim_data,
-  "No Covariance" = novcov_cgd_optim_data,
-  
-  .id = "optim_type" 
-) %>% 
+```{r param-plot}
+cgd_optim_data %>% 
   plot_model_param(other_types = optim_type) +
   scale_color_discrete("Moments") +
   theme(legend.position = "top")
 ```
 
-# Success Probabilities
+```{r candidates-table}
+cgd_id_dict %>%
+  arrange(cgd_vaccine_id) %>% 
+  select(
+    cgd_vaccine_id, name, institutes, country, Platform, Subcategory, funding, phase) %>%
+  mutate_at(vars(name, institutes, country), str_replace_all , "/", "<br>") %>% 
+  kbl(
+    col.names = c("CGD ID", "Name", "Institutes", "Country", "Platform", "Subcategory", "Funding", "Phase"), 
+    escape = FALSE, 
+    caption = "Restricted to phase 2 and 3 vaccines." 
+  ) %>% 
+  kable_styling()
+```
 
-## All Moments
-
-```{r, fig.height=9}
+```{r success-prob-by-candidate, fig.height=9}
 cgd_optim_data %>% 
-  plot_success_rates()
+  # filter(fct_match(optim_type, "All")) %>% 
+  plot_success_rates(other_types = optim_type) +
+  scale_color_discrete("Moments") +
+  theme(legend.position = "top")
 ```
 
-```{r, fig.height=6}
+```{r success-prob-by-type, fig.height=7}
 cgd_optim_data %>% 
-  plot_vacc_type_success_rates()
+  plot_vacc_type_success_rates(other_types = optim_type) +
+  scale_color_discrete("Moments") +
+  theme(legend.position = "top")
 ```
-
-## Down-weighted Covariance Moments
-
-```{r, fig.height=9}
-weighted_vcov_cgd_optim_data %>%
-  plot_success_rates()
-```
-
-```{r, fig.height=6}
-weighted_vcov_cgd_optim_data %>%
-  plot_vacc_type_success_rates()
-```
-
-## No Covariance Moments
-
-```{r, fig.height=9}
-novcov_cgd_optim_data %>% 
-  plot_success_rates()
-```
-
-```{r, fig.height=6}
-novcov_cgd_optim_data %>% 
-  plot_vacc_type_success_rates()
-```
-
