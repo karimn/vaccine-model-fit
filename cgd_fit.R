@@ -66,9 +66,11 @@ cgd_master_input <- raw_cgd_master_input %>%
     name = Name,
     institutes = Institutes,
     country = Country,
+    funding = `funding catogory`,
     Platform = str_replace(Platform, ".+viral vector", "Viral vector"), # Not distinguishing between replicating and non-replicating
     Subcategory,
-    phase = map_chr(phase_data, ~ if (nrow(.x) > 0) str_c("Phase ", max(.x$phase)) else "Pre-clinical")
+    phase = map_chr(phase_data, ~ if (nrow(.x) > 0) str_c("Phase ", max(.x$phase)) else "Pre-clinical"),
+    phase_data
   )
 
 cgd_trials <- read_csv(
@@ -96,7 +98,7 @@ cgd_id_dict <- if (FALSE) {
     right_join(
       cgd_master_input %>% 
         filter(fct_match(phase, c("Phase 2", "Phase 3"))) %>% 
-        nest(cgd_ids = c(cgd_vaccine_id, name, institutes, country)),
+        nest(cgd_ids = c(cgd_vaccine_id, name, institutes, country, funding, phase_data)),
       by = c("Platform", "Subcategory", "phase")
     ) %>% 
     mutate(
