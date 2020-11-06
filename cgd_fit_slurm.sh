@@ -10,9 +10,9 @@
 
 module load gcc R_core 
 
-Rscript cgd_fit.R --num-runs=2 --parallel=$SLURM_NTASKS 
-Rscript cgd_fit.R --num-runs=2 --vcov-moments-weight=0.1 --output=cgd_optim_vcov_weighted_0.1.rds --parallel=$SLURM_NTASKS  
-Rscript cgd_fit.R --num-runs=2 --vcov-moments-weight=0.5 --output=cgd_optim_vcov_weighted_0.5.rds --parallel=$SLURM_NTASKS  
+Rscript cgd_fit.R --num-runs=10 --parallel=$SLURM_NTASKS 
+Rscript cgd_fit.R --num-runs=10 --vcov-moments-weight=0.1 --output=cgd_optim_vcov_weighted_0.1.rds --parallel=$SLURM_NTASKS  
+Rscript cgd_fit.R --num-runs=10 --vcov-moments-weight=0.5 --output=cgd_optim_vcov_weighted_0.5.rds --parallel=$SLURM_NTASKS  
 # Rscript cgd_fit.R --num-runs=10 --output=cgd_optim_novcov --no-vcov-moments
 #Rscript cgd_fit.R --append-stage-2=data/cgd_optim.rds
 
