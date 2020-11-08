@@ -22,7 +22,8 @@ knitr::opts_chunk$set(fig.width = 9)
 ```{r load-data}
 cgd_optim_data <- bind_rows(
   "All" = read_rds(file.path("data", "cgd_optim.rds")),
-  # "Down-weighted Covariance (0.1)" = read_rds(file.path("data", "cgd_optim_vcov_weighted_0.1.rds")), 
+  "Down-weighted Covariance (0.1)" = read_rds(file.path("data", "cgd_optim_vcov_weighted_0.1.rds")), 
+  "Down-weighted Covariance (0.5)" = read_rds(file.path("data", "cgd_optim_vcov_weighted_0.5.rds")), 
   
   .id = "optim_type" 
 ) 
@@ -88,7 +89,8 @@ plot_success_rates <- function(optim_data, .baseline_model_success_rates = basel
                  distinct(cgd_vaccine_id, .keep_all = TRUE)) +
     geom_line(
       data = . %>%
-        filter(run_id == 1) %>%
+        # filter(run_id == 1) %>%
+        distinct(month, .keep_all = TRUE) %>%
         select(month, cgd_summary) %>%
         rowwise() %>%
         mutate(cgd_summary = list(cgd_summary$success_rates)) %>%
