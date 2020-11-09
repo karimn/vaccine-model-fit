@@ -202,10 +202,10 @@ cgd_optim_data %>%
 cgd_id_dict %>%
   arrange(cgd_vaccine_id) %>% 
   select(
-    cgd_vaccine_id, name, institutes, country, Platform, Subcategory, funding, phase) %>%
+    cgd_vaccine_id, name, institutes, country, Platform, Subcategory, firm_size, funding, phase) %>%
   mutate_at(vars(name, institutes, country), str_replace_all , "/", "<br>") %>% 
   kbl(
-    col.names = c("CGD ID", "Name", "Institutes", "Country", "Platform", "Subcategory", "Funding", "Phase"), 
+    col.names = c("CGD ID", "Name", "Institutes", "Country", "Platform", "Subcategory", "Firm Size", "Funding", "Phase"), 
     escape = FALSE, 
     caption = "Restricted to phase 2 and 3 vaccines." 
   ) %>% 

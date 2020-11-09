@@ -51,6 +51,12 @@ raw_cgd_master_input <- read_xlsx(file.path("data", "Master Input Data - COVID-1
     values_drop_na = TRUE
   ) %>% 
   rename(
+    cgd_vaccine_id = "Number",
+    name = "Name",
+    institutes = "Institutes",
+    country = "Country",
+    funding = "funding catogory",
+    firm_size = "Firm size",
     phase_country = "country",
     phase_start_date = "start date",
     phase_end_date = "end date",
@@ -60,13 +66,9 @@ raw_cgd_master_input <- read_xlsx(file.path("data", "Master Input Data - COVID-1
   mutate(phase_data = map(phase_data, filter, across(starts_with("phase_"), ~ !is.na(.x)))) 
 
 cgd_master_input <- raw_cgd_master_input %>% 
-  filter(!str_detect(Institutes, "Kentucky Bioprocessing")) %>% # Exists in out data as pre-clinical but also Unknown/Unknown
+  filter(!str_detect(institutes, "Kentucky Bioprocessing")) %>% # Exists in out data as pre-clinical but also Unknown/Unknown
   transmute(
-    cgd_vaccine_id = Number,
-    name = Name,
-    institutes = Institutes,
-    country = Country,
-    funding = `funding catogory`,
+    cgd_vaccine_id, name, institutes, country, funding, firm_size,
     Platform = str_replace(Platform, ".+viral vector", "Viral vector"), # Not distinguishing between replicating and non-replicating
     Subcategory,
     phase = map_chr(phase_data, ~ if (nrow(.x) > 0) str_c("Phase ", max(.x$phase)) else "Pre-clinical"),
@@ -98,7 +100,7 @@ cgd_id_dict <- if (FALSE) {
     right_join(
       cgd_master_input %>% 
         filter(fct_match(phase, c("Phase 2", "Phase 3"))) %>% 
-        nest(cgd_ids = c(cgd_vaccine_id, name, institutes, country, funding, phase_data)),
+        nest(cgd_ids = c(cgd_vaccine_id, name, institutes, country, funding, firm_size, phase_data)),
       by = c("Platform", "Subcategory", "phase")
     ) %>% 
     mutate(
