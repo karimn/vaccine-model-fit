@@ -37,9 +37,6 @@ script_options %<>%
 
 # Load the CGD data and convert it ----------------------------------------
 
-zero_month_date <- lubridate::as_date("2020-10-01") 
-start_month_offset <- 9
-
 raw_cgd_master_input <- read_xlsx(file.path("data", "Master Input Data - COVID-19 Vaccine Predictions publication-2.xlsx")) %>% 
   pivot_longer(
     cols = `Phase 1 country`:`Phase 3 trial number`, 
