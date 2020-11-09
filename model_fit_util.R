@@ -267,9 +267,16 @@ quick_get_summary <- function(param, ..., candidate_data, dordered, maxcand, gro
 convert_cgd_trials <- function(start_month_offset, cgd_trials, id_dict) {
   converted <- cgd_trials %>% 
     rename(r = try_id) %>% 
-    mutate(success_rate = !is.na(phase_mon_approval) & phase_mon_approval <= start_month_offset) %>% 
+    pivot_longer(phase_mon_1:phase_mon_approval, names_to = "phase", values_to = "approval_month", names_prefix = "phase_mon_") %>% 
+    filter(!is.na(approval_month)) %>%
+    group_by(r, vaccine_id) %>% 
+    filter(approval_month == max(approval_month)) %>% 
+    ungroup() %>% 
     complete(r, vaccine_id = id_dict$cgd_vaccine_id) %>% 
-    mutate(success_rate = coalesce(success_rate, 0L))
+    mutate(
+      phase = coalesce(phase, "none"),
+    ) %>% 
+    mutate(success_rate = fct_match(phase, "approval") & approval_month <= start_month_offset) 
   
   if (!is_null(id_dict)) {
     converted %<>% 
