@@ -109,8 +109,8 @@ cgd_id_dict <- if (FALSE) {
   read_rds(file.path("data", "cgd_id_dict.rds"))
 }
 
-cgd_draws_month <- lubridate::as_date("2020/10/01")
-fit_month_offsets <- seq(script_options$num_months) + 2
+cgd_draws_month <- lubridate::as_date("2020/11/01")
+fit_month_offsets <- seq(script_options$num_months) + 1
 
 initial_par <- c(poverall = 0.5, psubcat = 0.5, 
                  pvector = 0.5, psubunit = 0.5, prna = 0.5, pdna = 0.5, pinactivated = 0.5, pattenuated = 0.5,
