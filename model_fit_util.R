@@ -93,6 +93,7 @@ summarize_draws <- function(draws) {
     success_rates <- get_summary_success_rates(draws) 
     
     success_vcov <- draws %>% 
+      select(r, vacc_group_id, success_rate) %>% 
       pivot_wider(id_cols = r, names_from = vacc_group_id, values_from = success_rate) %>% 
       select(-r) %>% 
       as.data.frame() %>% 
@@ -235,12 +236,16 @@ optim_run <- function(run_id, summaries, maxcand, prev_run_data = NULL, replicat
     mutate(
       run_id, 
       step = seq(n()),
-      summary = map_if(seq(n()), step == n(), ~ test_optim_log$draw_summary, .else = ~ NULL) 
+    ) %>% 
+    filter(step == n()) %>% # Only keep the last step
+    mutate(
+      # summary = map_if(seq(n()), step == n(), ~ test_optim_log$draw_summary, .else = ~ NULL) 
+      summary = test_optim_log$draw_summary
     )
   
   if (!is_null(prev_run_data)) {
     run_data %<>%
-      mutate(step = step + nrow(prev_run_data)) %>% 
+      mutate(step = step + max(prev_run_data$step)) %>% 
       bind_rows(prev_run_data, .)
   }
   
@@ -266,16 +271,6 @@ quick_get_summary <- function(param, ..., candidate_data, dordered, maxcand, gro
 
 convert_cgd_trials <- function(start_month_offset, cgd_trials, id_dict) {
   converted <- cgd_trials %>% 
-    rename(r = try_id) %>% 
-    pivot_longer(phase_mon_1:phase_mon_approval, names_to = "phase", values_to = "approval_month", names_prefix = "phase_mon_") %>% 
-    filter(!is.na(approval_month)) %>%
-    group_by(r, vaccine_id) %>% 
-    filter(approval_month == max(approval_month)) %>% 
-    ungroup() %>% 
-    complete(r, vaccine_id = id_dict$cgd_vaccine_id) %>% 
-    mutate(
-      phase = coalesce(phase, "none"),
-    ) %>% 
     mutate(success_rate = fct_match(phase, "approval") & approval_month <= start_month_offset) 
   
   if (!is_null(id_dict)) {
