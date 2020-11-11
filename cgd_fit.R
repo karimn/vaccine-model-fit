@@ -11,6 +11,7 @@ Options:
   --no-vcov-moments
   --vcov-moments-weight=<weight>  Weighting matrix weight for covariance moments [default: 1]
   --parallel=<cores>  In Rscript this is automatically used by {future} to set up a multicore run.
+  --pfizer-pref  Half of the CGD sample should have the Pfizer vaccine succeed before March 2021.
 " -> opt_desc
 
 script_options <- if (interactive()) {
@@ -166,6 +167,25 @@ cgd_trials <- raw_cgd_trials %>%
   mutate(
     phase = coalesce(phase, "none"),
   )
+
+if (script_options$pfizer_pref) {
+  num_cgd_trials <- max(cgd_trials$r)
+  
+  cgd_trials %<>% 
+    nest(vacc_phase = -r) %>%
+    mutate(
+      pfizer_before_mar = future_map_lgl(vacc_phase, 
+                                         ~ filter(.x, vaccine_id == 150, phase == "approval", approval_month <= 3) %>% 
+                                           nrow() %>% 
+                                           is_greater_than(0))
+    ) %>% 
+    group_by(pfizer_before_mar) %>% 
+    sample_n(num_cgd_trials / 2, replace = TRUE) %>% 
+    ungroup() %>% 
+    mutate(r = seq(n())) %>% 
+    unnest(vacc_phase) %>% 
+    select(-pfizer_before_mar)
+}
 
 cgd_draws_month <- cgd_draws_date %>% subtract(lubridate::day(.) - 1) 
 fit_month_offsets <- seq(script_options$num_months) + 1
