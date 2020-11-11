@@ -240,7 +240,7 @@ optim_run <- function(run_id, summaries, maxcand, prev_run_data = NULL, replicat
     filter(step == n()) %>% # Only keep the last step
     mutate(
       # summary = map_if(seq(n()), step == n(), ~ test_optim_log$draw_summary, .else = ~ NULL) 
-      summary = test_optim_log$draw_summary
+      summary = list(test_optim_log$draw_summary)
     )
   
   if (!is_null(prev_run_data)) {
