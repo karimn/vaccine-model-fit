@@ -167,6 +167,21 @@ cgd_trials <- raw_cgd_trials %>%
     phase = coalesce(phase, "none"),
   )
 
+cgd_trials %<>% 
+  nest(vacc_phase = -r) %>%
+  mutate(
+    pfizer_before_mar = future_map_lgl(vacc_phase, 
+                                       ~ filter(.x, vaccine_id == 150, phase == "approval", approval_month <= 3) %>% 
+                                         nrow() %>% 
+                                         is_greater_than(0))
+  ) %>% 
+  group_by(pfizer_before_mar) %>% 
+  sample_n(nrow(cgd_trials) / 2, replace = TRUE) %>% 
+  ungroup() %>% 
+  mutate(r = seq(n())) %>% 
+  unnest(vacc_phase) %>% 
+  select(-pfizer_before_mar)
+
 cgd_draws_month <- cgd_draws_date %>% subtract(lubridate::day(.) - 1) 
 fit_month_offsets <- seq(script_options$num_months) + 1
 
