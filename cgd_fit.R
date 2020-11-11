@@ -6,7 +6,7 @@
 Options:
   --num-runs=<runs>  Number of runs per month [default: 1]
   --num-months=<months>  Number of months to fit with the CGD data [default: 12]
-  --output=<run-data-file>  Where to store output [default: cgd_optim.rds]
+  --output=<run-data-file>  Where to store output [default: cgd_optim]
   --append-stage-2=<run-data-file>
   --no-vcov-moments
   --vcov-moments-weight=<weight>  Weighting matrix weight for covariance moments [default: 1]
@@ -14,7 +14,7 @@ Options:
 " -> opt_desc
 
 script_options <- if (interactive()) {
-  docopt::docopt(opt_desc, '--output=test.rds --num-runs=12')
+  docopt::docopt(opt_desc, '--output=test --num-runs=12')
 } else {
   docopt::docopt(opt_desc)
 }
@@ -35,7 +35,15 @@ script_options %<>%
   modify_at(c("num_runs", "num_months"), as.integer) %>% 
   modify_at(c("vcov_moments_weight"), as.numeric)
 
-# Load the CGD data and convert it ----------------------------------------
+# Load AHT summary data ---------------------------------------------------
+
+long_aht_summary <- read_csv(file.path("data", "vaccinesSummaryCGD.csv")) %>% 
+  pivot_longer(Phase1candidates:RepurposedCandidates, names_to = "phase", values_to = "n") %>% 
+  mutate(n = as.integer(n))
+
+# Load the CGD data ----------------------------------------
+
+cgd_draws_date <- lubridate::as_date("2020/11/09")
 
 raw_cgd_master_input <- read_xlsx(file.path("data", "Master Input Data - COVID-19 Vaccine Predictions publication-2.xlsx")) %>% 
   pivot_longer(
@@ -58,7 +66,7 @@ raw_cgd_master_input <- read_xlsx(file.path("data", "Master Input Data - COVID-1
     phase_start_date = "start date",
     phase_end_date = "end date",
     phase_trial_number = "trial number") %>% 
-  mutate_at(vars(starts_with("phase_")), ~ na_if(.x, "NA")) %>% 
+  mutate(across(starts_with("phase_"), ~ na_if(.x, "NA"))) %>% 
   nest(phase_data = phase:phase_trial_number) %>% 
   mutate(phase_data = map(phase_data, filter, across(starts_with("phase_"), ~ !is.na(.x)))) 
 
@@ -72,6 +80,62 @@ cgd_master_input <- raw_cgd_master_input %>%
     phase_data
   )
 
+cgd_params_json_data <- jsonlite::fromJSON(file.path("data", "cgd_params.json")) 
+
+cgd_json_data <- jsonlite::fromJSON(file.path("data", "cgd_vaccines.json")) %>% 
+  mutate(
+    cgd_vaccine_id = as.integer(number),
+  ) %>% 
+  select(cgd_vaccine_id, name, institutes, country, platform_key, funding = funding_category, funding_key, firm_size, 
+         dev_phase = phase, start_date = start_dates, end_date = end_dates) %>% 
+  mutate(cgd_platform = cgd_params_json_data$platforms[platform_key + 1]) %>% 
+  rowwise() %>% 
+  mutate(
+    phase_dates = list(
+      tibble(phase = 0:4, start_date, end_date) %>% 
+        mutate(across(c(start_date, end_date), ~ lubridate::as_datetime(na_if(.x, 0)))) %>% 
+        filter(!is.na(start_date))
+    ),
+  ) %>% 
+  ungroup() %>% 
+  mutate(phase = map_chr(
+    phase_dates, ~ {
+      phase <- .x %>% 
+        filter(start_date <= cgd_draws_date) %>% 
+        pull(phase) %>% 
+        max()
+      
+      if (max(.x$end_date, na.rm = TRUE) < cgd_draws_date) {
+        phase %<>% add(1L) 
+      }
+      
+      if (phase > 0) { 
+        str_c("Phase ", phase) 
+      } else {
+        "Pre-clinical"
+      }
+    })
+  ) %>% 
+  select(!c(start_date, end_date)) %>% 
+  left_join(select(cgd_master_input, cgd_vaccine_id, Platform, Subcategory, old_phase = phase), by = "cgd_vaccine_id") %>% 
+  mutate( # These have to be manually set after matching them with the AHT vaccines
+    Subcategory = if_else(cgd_vaccine_id == 18, "Inactivated", Subcategory),
+    Subcategory = if_else(cgd_vaccine_id == 115, "S Protein", Subcategory),
+    Subcategory = if_else(cgd_vaccine_id == 139, "Measles (replicating)", Subcategory),
+  )
+
+cgd2aht_summary <- cgd_json_data %>% 
+  filter(fct_match(phase, c("Phase 2", "Phase 3"))) %>% 
+  count(Platform, Subcategory, phase) %>% 
+  mutate(phase = str_remove(phase, " ") %>% str_c("candidates")) %>% 
+  full_join(long_aht_summary, by = c("Platform", "Subcategory", "phase"), suffix = c("_cgd", "_aht")) %>% 
+  mutate(n = coalesce(n_cgd, n_aht)) %>%  
+  select(!c(n_aht, n_cgd)) %>% 
+  pivot_wider(Platform:PreviousState, names_from = phase, values_from = n)
+
+aht_vaccines_file <- file.path("data", str_c(script_options$output, "_aht_vaccines.csv"))
+write_csv(cgd2aht_summary, aht_vaccines_file)
+
 cgd_trials <- read_csv(
   file.path("data", "cgd_trials.csv"), 
   skip = 1,
@@ -82,8 +146,13 @@ cgd_trials <- read_csv(
 # Settings ----------------------------------------------------------------
 
 group_vaccines_by <- NULL 
-maxcand <- 50 
-candidate_data <- load_candidate_data(file.path("data", "vaccinesSummaryCGD.csv"))
+maxcand <- 75 
+candidate_data <- #withr::with_tempfile(new = "aht_summary", tmpdir = "temp", {
+  # load_candidate_data(file.path("data", "vaccinesSummaryCGD.csv"))
+  # write_csv(cgd2aht_summary, aht_summary)
+  load_candidate_data(aht_vaccines_file)
+# })
+
 dordered <- calc_dordered(candidate_data, maxcand = maxcand)
 
 cgd_id_dict <- if (FALSE) {
@@ -95,9 +164,12 @@ cgd_id_dict <- if (FALSE) {
     select(candInd, Platform, Subcategory, phase) %>% 
     nest(ids = candInd) %>% 
     right_join(
-      cgd_master_input %>% 
-        filter(fct_match(phase, c("Phase 2", "Phase 3"))) %>% 
-        nest(cgd_ids = c(cgd_vaccine_id, name, institutes, country, funding, firm_size, phase_data)),
+      cgd_json_data %>% 
+        filter(
+          fct_match(phase, c("Phase 2", "Phase 3")),
+          across(c(Platform, Subcategory), ~ ! is.na(.x)) # BUG Need to figure out these columns in the CGD data
+        ) %>% 
+        nest(cgd_ids = c(cgd_vaccine_id, name, institutes, country, platform_key, cgd_platform, funding, funding_key, firm_size, dev_phase, old_phase, phase_dates)),
       by = c("Platform", "Subcategory", "phase")
     ) %>% 
     mutate(
@@ -109,7 +181,7 @@ cgd_id_dict <- if (FALSE) {
   read_rds(file.path("data", "cgd_id_dict.rds"))
 }
 
-cgd_draws_month <- lubridate::as_date("2020/11/01")
+cgd_draws_month <- cgd_draws_date %>% subtract(lubridate::day(.) - 1) 
 fit_month_offsets <- seq(script_options$num_months) + 1
 
 initial_par <- c(poverall = 0.5, psubcat = 0.5, 
@@ -166,7 +238,7 @@ if (is_null(script_options$append_stage_2)) {
     )
   ) 
   
-  write_rds(cgd_optim_data, file.path("data", script_options$output))
+  write_rds(cgd_optim_data, file.path("data", str_c(script_options$output, ".rds")))
   
   cat("done.\n")
 } else {
@@ -198,6 +270,6 @@ cgd_optim_data %<>%
   mutate(run_summary = list(last(param_data$summary))) %>% 
   ungroup()
 
-write_rds(cgd_optim_data, file.path("data", script_options$output))
+write_rds(cgd_optim_data, file.path("data", str_c(script_options$output, ".rds")))
 
 cat("...done.\n")
