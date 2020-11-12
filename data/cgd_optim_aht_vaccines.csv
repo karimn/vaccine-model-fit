@@ -1,0 +1,33 @@
+Platform,Subcategory,PreviousState,Phase2candidates,Phase3candidates,Phase1candidates,PreClinicalCandidates,RepurposedCandidates
+DNA,Electroporation,Clinical,1,NA,NA,NA,NA
+DNA,Other DNA,Clinical,2,2,3,5,NA
+Inactivated,Inactivated,Licensed,2,3,NA,3,NA
+Live attenuated virus,Live attenuated,Licensed,1,NA,NA,23,NA
+Protein subunit,Other protein subunit,Licensed,1,1,3,4,NA
+Protein subunit,Recombinant protein,Licensed,1,NA,NA,16,NA
+Protein subunit,S protein,Licensed,2,NA,4,3,NA
+Protein subunit,S Protein,NA,1,NA,NA,NA,NA
+Protein subunit,NA,NA,1,NA,NA,NA,NA
+RNA,LNP-encapsulated mRNA,Clinical,NA,1,NA,9,NA
+RNA,mRNA,Clinical,2,1,NA,2,NA
+RNA,NA,NA,NA,1,NA,NA,NA
+Unknown,Unknown,Pre-clinical,1,NA,NA,6,NA
+Viral vector,Adenovirus (non-replicating),Licensed,1,3,1,1,NA
+Viral vector,Measles (replicating),Licensed,1,NA,NA,3,NA
+Viral vector,Other NRVV,Licensed,1,NA,1,3,NA
+Viral vector,NA,NA,1,NA,NA,NA,NA
+VLP,VLP,Licensed,1,NA,1,NA,NA
+NA,NA,NA,1,NA,NA,NA,NA
+Artificial antigen presenting cells,Artificial antigen presenting cells,Pre-clinical,NA,NA,NA,NA,NA
+Dendritic cells,Dendritic cell,Pre-clinical,NA,NA,NA,NA,NA
+DNA,Plasmid + adjuvant,Clinical,NA,NA,NA,NA,NA
+DNA,Unknown,Clinical,NA,NA,NA,NA,NA
+Live attenuated bacteria,Live attenuated bacteria,Repurposed,NA,NA,NA,3,1
+RNA,Other RNA,Clinical,NA,NA,2,1,NA
+RNA,sARNA,Clinical,NA,NA,1,15,NA
+Self-assembling vaccine,Self-assembling vaccine,Pre-clinical,NA,NA,NA,1,NA
+Viral vector,Horsepox (replicating),Licensed,NA,NA,NA,2,NA
+Viral vector,Influenza (replicating),Licensed,NA,NA,NA,2,NA
+Viral vector,MVA (non-replicating),Licensed,NA,NA,NA,1,NA
+Viral vector,Replicating Viral Vector,Licensed,NA,NA,1,2,NA
+Viral vector,VSV (replicating),Licensed,NA,NA,NA,7,NA
