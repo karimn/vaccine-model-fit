@@ -223,7 +223,7 @@ optim_run <- function(run_id, summaries, maxcand, prev_run_data = NULL, replicat
   
   if (!is_null(prev_run_data)) {
     initial_par <- prev_run_data %>% 
-      filter(step == n()) %>% 
+      filter(step == max(step)) %>% 
       select(all_of(names(initial_par))) %>% 
       unlist()
   }
