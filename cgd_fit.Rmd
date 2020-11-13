@@ -22,6 +22,7 @@ knitr::opts_chunk$set(fig.width = 9)
 ```{r load-data}
 cgd_optim_data <- bind_rows(
   "Normal" = read_rds(file.path("data", "cgd_optim.rds")),
+  "Pfizer" = read_rds(file.path("data", "cgd_optim_pfizer.rds")),
   
   .id = "optim_type" 
 ) %>% 
@@ -37,7 +38,8 @@ cgd_id_dict <- read_rds(file.path("data", "cgd_id_dict.rds")) %>%
 maxcand <- 75
 
 baseline_model_success_rates <- lst(
-  "Normal" = file.path("data", "cgd_optim_aht_vaccines.csv")
+  "Normal" = file.path("data", "cgd_optim_aht_vaccines.csv"),
+  "Pfizer" = file.path("data", "cgd_optim_pfizer_aht_vaccines.csv")
 ) %>% 
   map(load_candidate_data) %>% 
   map(~ get_candidate_draws(
@@ -120,7 +122,7 @@ plot_success_rates <- function(optim_data, baseline_success_rate) {
          subtitle = "Restricted to phase 2 and 3 vaccines.",
          caption = "Using 5 runs.
                     Solid black line: the moment calculated from the CGD model data.
-                    Dashed horizontal line: baseline AHT model parameters.",
+                    Dashed horizontal line: baseline AHT model success rates.",
          y = ""
        ) +
     facet_wrap(
@@ -173,7 +175,7 @@ plot_vacc_type_success_rates <- function(optim_data, baseline_sucess_rate) {
          subtitle = "Restricted to phase 2 and 3 vaccines.",
          caption = "Using 5 runs.
                     Solid black line: the moment calculated from the CGD model data.
-                    Dashed horizontal line: baseline AHT model parameters.",
+                    Dashed horizontal line: baseline AHT model success rates.",
          y = ""
     ) +
     facet_wrap(
@@ -194,9 +196,7 @@ plot_vacc_type_success_rates <- function(optim_data, baseline_sucess_rate) {
 }
 ```
 
-Using 10 simulation runs.
-
-```{r param-plot}
+```{r param-plot, fig.height=10}
 cgd_optim_data %$% 
   map(set_names(model_data, optim_type), plot_model_param) %>% {
     cowplot::plot_grid(
@@ -220,7 +220,7 @@ cgd_id_dict %>%
   kable_styling()
 ```
 
-```{r success-prob-by-candidate, fig.height=9}
+```{r success-prob-by-candidate, fig.height=20}
 cgd_optim_data %$% 
   map2(set_names(model_data, optim_type), baseline_success_rate, plot_success_rates) %>% {
     cowplot::plot_grid(
@@ -231,7 +231,7 @@ cgd_optim_data %$%
   }
 ```
 
-```{r success-prob-by-type, fig.height=7}
+```{r success-prob-by-type, fig.height=20}
 cgd_optim_data %$% 
   map2(set_names(model_data, optim_type), baseline_success_rate, plot_vacc_type_success_rates) %>% {
     cowplot::plot_grid(
