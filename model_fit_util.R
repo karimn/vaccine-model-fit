@@ -115,8 +115,23 @@ OptimLogger <- R6Class(
    list(
      data = tibble(),
      draw_summary = tibble(),
-     log_param = function(...) { self$data %<>% bind_rows(tibble(!!!rlang::list2(...))) },
+     step = 0,
+     log_param = function(...) { 
+       self$step %<>% add(1)
+       self$data %<>% bind_rows(tibble(step = self$step, !!!rlang::list2(...))) 
+     },
      log_summary = function(summary) { self$draw_summary <- summary }
+   )
+)
+
+SimpleOptimLogger <- R6Class(
+  # Only stores the last step
+  "SimpleOptimLogger", inherit = OptimLogger,
+   list(
+     log_param = function(...) { 
+       self$step %<>% add(1)
+       self$data <- tibble(step = self$step, !!!rlang::list2(...)) 
+     }
    )
 )
 
@@ -203,12 +218,12 @@ optim_run <- function(run_id, summaries, maxcand, prev_run_data = NULL, replicat
                       fixed_model_probs = baseline_param, 
                       weighting_matrix = NULL,
                       ndeps = rep_along(initial_par, 1e-2)) {
-  test_optim_log <- OptimLogger$new()
+  test_optim_log <- SimpleOptimLogger$new()
   run_seed <- as.integer(Sys.time()) %% 1e5
   
   if (!is_null(prev_run_data)) {
     initial_par <- prev_run_data %>% 
-      filter(step == n()) %>% 
+      filter(step == max(step)) %>% 
       select(all_of(names(initial_par))) %>% 
       unlist()
   }
@@ -235,11 +250,8 @@ optim_run <- function(run_id, summaries, maxcand, prev_run_data = NULL, replicat
   run_data <- test_optim_log$data %>%
     mutate(
       run_id, 
-      step = seq(n()),
     ) %>% 
-    filter(step == n()) %>% # Only keep the last step
     mutate(
-      # summary = map_if(seq(n()), step == n(), ~ test_optim_log$draw_summary, .else = ~ NULL) 
       summary = list(test_optim_log$draw_summary)
     )
   

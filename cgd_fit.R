@@ -201,7 +201,7 @@ cgd_data <- tibble(
   month = cgd_draws_month + months(fit_month_offsets)
 ) %>% 
   mutate(
-    cgd_converted = future_map(month_offset, convert_cgd_trials, cgd_trials = cgd_trials, id_dict = cgd_id_dict, .progress = TRUE) 
+    cgd_converted = future_map(month_offset, convert_cgd_trials, cgd_trials = cgd_trials, id_dict = cgd_id_dict, .progress = TRUE)
   ) 
 
 cgd_optim_data <- cgd_data %>%  
@@ -268,7 +268,8 @@ cgd_optim_data %<>%
           ndeps = rep_along(initial_par, 2e-3)
         )
       },
-      .progress = TRUE),
+      .progress = TRUE
+    )
   ) %>% 
   rowwise() %>% 
   mutate(run_summary = list(last(param_data$summary))) %>% 
